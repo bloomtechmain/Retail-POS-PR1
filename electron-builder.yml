@@ -1,6 +1,6 @@
-appId: com.retailpos.app
-productName: RetailPOS
-copyright: Copyright © 2025 RetailPOS
+appId: com.bloompos.app
+productName: BloomPOS
+copyright: Copyright © 2025 BloomPOS
 
 # Directory config
 directories:
@@ -34,6 +34,7 @@ asar: false
 
 # Windows installer settings
 win:
+  icon: build-assets/icon.ico
   target:
     - target: nsis
       arch:
@@ -47,7 +48,9 @@ nsis:
   allowElevation: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: RetailPOS
+  shortcutName: BloomPOS
   runAfterFinish: true
   perMachine: true
   deleteAppDataOnUninstall: false
+  installerSidebar: build-assets/installer-sidebar.bmp
+  installerHeader: build-assets/installer-header.bmp

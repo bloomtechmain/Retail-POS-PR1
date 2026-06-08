@@ -75,17 +75,12 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-5 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center gap-2.5">
-          {/* Icon with gradient */}
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-md"
-            style={{ background: 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)' }}
-          >
-            <svg className="w-4.5 h-[18px] w-[18px] text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
+          {/* Logo */}
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-md overflow-hidden">
+            <img src="/logo.png" alt="BloomPOS" className="w-full h-full object-contain" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold tracking-wide text-white">RetailPOS</div>
+            <div className="text-sm font-bold tracking-wide text-white">BloomPOS</div>
             <div className="text-[10px] uppercase tracking-widest" style={{ color: 'rgba(148,163,184,0.7)' }}>v1.0</div>
           </div>
           {/* Language toggle */}
