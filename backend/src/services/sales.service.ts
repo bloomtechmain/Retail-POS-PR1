@@ -16,6 +16,11 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
     }
     const shiftId = shiftResult.rows[0].id;
 
+    // Credit sales require a customer name
+    if (data.payment_method === 'credit' && !data.customer_name?.trim()) {
+      throw createError('Customer name is required for credit (pay later) sales', 400);
+    }
+
     // Calculate totals
     let subtotal = 0;
     let itemDiscountTotal = 0;
@@ -136,8 +141,8 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
        WHERE id = $4`,
       [
         totalAmount,
-        data.payment_method !== 'card' ? round2(data.cash_tendered - changeAmount) : 0,
-        data.payment_method !== 'cash' ? data.card_amount : 0,
+        (data.payment_method === 'cash' || data.payment_method === 'mixed') ? round2(data.cash_tendered - changeAmount) : 0,
+        (data.payment_method === 'card' || data.payment_method === 'mixed') ? data.card_amount : 0,
         shiftId,
       ]
     );

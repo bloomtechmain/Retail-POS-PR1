@@ -127,7 +127,14 @@ export const applyPromotions = async (
         }
       }
     } else if (promo.type === 'fixed_amount' && promo.discount_value) {
-      if (promo.applies_to === 'product' && promo.product_id) {
+      if (promo.applies_to === 'all') {
+        // Apply the flat discount to the first item in the cart
+        if (updatedItems.length > 0) {
+          updatedItems[0].item_discount = round2((updatedItems[0].item_discount || 0) + promo.discount_value);
+          updatedItems[0].promotion_id = promo.id;
+          applied.push(`${promo.name}: -LKR ${promo.discount_value}`);
+        }
+      } else if (promo.applies_to === 'product' && promo.product_id) {
         const target = updatedItems.find((i) => i.product_id === promo.product_id);
         if (target) {
           target.item_discount = round2((target.item_discount || 0) + promo.discount_value);

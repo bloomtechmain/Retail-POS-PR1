@@ -185,7 +185,7 @@ export interface Sale {
   total_amount: number;
   cost_total: number;
   profit: number;
-  payment_method: 'cash' | 'card' | 'mixed';
+  payment_method: 'cash' | 'card' | 'mixed' | 'credit';
   cash_tendered: number;
   card_amount: number;
   change_amount: number;
@@ -267,7 +267,7 @@ export interface CartItem {
 export interface CreateSalePayload {
   cart_items: CartItem[];
   bill_discount: number;
-  payment_method: 'cash' | 'card' | 'mixed';
+  payment_method: 'cash' | 'card' | 'mixed' | 'credit';
   cash_tendered: number;
   card_amount: number;
   customer_name?: string;
