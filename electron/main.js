@@ -6,10 +6,25 @@ const fs = require('fs');
 const { fork, spawn } = require('child_process');
 const http = require('http');
 
+const { execSync } = require('child_process');
 const { checkLicense, activateLicense } = require('./license');
 
 const BACKEND_PORT = 5000;
 const APP_VERSION = app.getVersion();
+
+// ─── Single Instance Lock ─────────────────────────────────────────────────────
+// Prevents EADDRINUSE when user double-clicks the shortcut while app is running.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+app.on('second-instance', () => {
+  // Someone tried to open a second instance — focus our window instead.
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
 
 let mainWindow = null;
 let splashWindow = null;
@@ -121,8 +136,9 @@ async function startApp() {
     updateSplash('Starting database…', 20);
     await startPostgres();
 
-    // Step 2: Start backend
+    // Step 2: Kill any orphaned process on backend port, then start backend
     updateSplash('Starting backend…', 50);
+    killProcessOnPort(BACKEND_PORT);
     await startBackend();
 
     // Step 3: Wait for backend
@@ -140,8 +156,8 @@ async function startApp() {
     closeSplash();
     const choice = dialog.showMessageBoxSync({
       type: 'error',
-      title: 'RetailPOS — Startup Error',
-      message: 'Failed to start RetailPOS',
+      title: 'BloomPOS — Startup Error',
+      message: 'Failed to start BloomPOS',
       detail: err.message,
       buttons: ['Retry', 'Quit'],
     });
@@ -454,7 +470,7 @@ function createMainWindow() {
       devTools: !app.isPackaged,
     },
     titleBarStyle: 'default',
-    title: 'RetailPOS',
+    title: 'BloomPOS',
   });
 
   mainWindow.loadURL(`http://localhost:${BACKEND_PORT}`);
@@ -533,6 +549,23 @@ function cleanup() {
     pgInstance.stop().catch(() => {});
     pgInstance = null;
   }
+}
+
+// ─── Kill any process occupying a port (Windows) ─────────────────────────────
+// Handles the case where a previous crash left a zombie backend on the port.
+function killProcessOnPort(port) {
+  try {
+    const out = execSync(`netstat -ano`, { encoding: 'utf8', windowsHide: true });
+    const lines = out.split('\n').filter(l => l.includes(`:${port}`) && l.includes('LISTENING'));
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      const pid = parts[parts.length - 1];
+      if (pid && pid !== '0') {
+        console.log(`[Main] Killing orphaned process PID ${pid} on port ${port}`);
+        try { execSync(`taskkill /F /PID ${pid}`, { windowsHide: true }); } catch {}
+      }
+    }
+  } catch {}
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
