@@ -14,6 +14,13 @@ export const generateGRNNumber = (): string => {
   return `GRN-${date}-${rand}`;
 };
 
+export const generateReturnNumber = (): string => {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const rand = Math.floor(Math.random() * 9000) + 1000;
+  return `RET-${date}-${rand}`;
+};
+
 export const generateShiftNumber = (): string => {
   const now = new Date();
   const date = now.toISOString().slice(0, 10).replace(/-/g, '');

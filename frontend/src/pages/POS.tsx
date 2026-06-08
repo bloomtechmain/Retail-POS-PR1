@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
-import { Product, Promotion, Sale } from '../types';
+import { Product, Promotion, Sale, SaleReturn } from '../types';
 import api from '../services/api';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -148,6 +148,188 @@ function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => voi
         <button onClick={() => window.print()} className="btn-secondary flex-1">🖨️ {t.pos_print}</button>
         <button onClick={onClose} className="btn-primary flex-1">{t.pos_new_sale}</button>
       </div>
+    </Modal>
+  );
+}
+
+// ─── Sale Return Modal ────────────────────────────────────────────────────────
+function SaleReturnModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const toast = useToastStore();
+  const [step, setStep] = useState<'lookup' | 'select' | 'receipt'>('lookup');
+  const [saleNumber, setSaleNumber] = useState('');
+  const [sale, setSale] = useState<Sale | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [reason, setReason] = useState('');
+  const [refundMethod, setRefundMethod] = useState<'cash' | 'card' | 'store_credit'>('cash');
+  const [returnQtys, setReturnQtys] = useState<Record<number, number>>({});
+  const [completedReturn, setCompletedReturn] = useState<SaleReturn | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setStep('lookup'); setSaleNumber(''); setSale(null);
+      setReason(''); setRefundMethod('cash'); setReturnQtys({}); setCompletedReturn(null);
+    }
+  }, [isOpen]);
+
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+
+  const handleLookup = async () => {
+    if (!saleNumber.trim()) return;
+    setLoading(true);
+    try {
+      const r = await api.get(`/sales?sale_number=${encodeURIComponent(saleNumber.trim())}&limit=1`);
+      const results: Sale[] = r.data.data;
+      if (!results.length) { toast.error('Sale not found'); return; }
+      if (results[0].status === 'voided') { toast.error('Voided sales cannot be refunded'); return; }
+      const detail = await api.get(`/sales/${results[0].id}`);
+      const found: Sale = detail.data.data;
+      setSale(found);
+      const init: Record<number, number> = {};
+      found.items?.forEach((i) => { init[i.id] = 0; });
+      setReturnQtys(init);
+      setStep('select');
+    } catch { toast.error('Sale not found'); }
+    finally { setLoading(false); }
+  };
+
+  const handleProcessReturn = async () => {
+    if (!sale) return;
+    const items = Object.entries(returnQtys)
+      .filter(([, qty]) => qty > 0)
+      .map(([id, qty]) => ({ sale_item_id: parseInt(id), quantity: qty }));
+    if (!items.length) { toast.error('Select at least one item to return'); return; }
+    setProcessing(true);
+    try {
+      const r = await api.post(`/sales/${sale.id}/return`, { items, return_reason: reason || undefined, refund_method: refundMethod });
+      setCompletedReturn(r.data.data);
+      setStep('receipt');
+      toast.success(`Return ${r.data.data.return_number} processed`);
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Return failed');
+    } finally { setProcessing(false); }
+  };
+
+  const refundTotal = sale?.items?.reduce((sum, item) => {
+    return sum + r2((returnQtys[item.id] ?? 0) * item.unit_price);
+  }, 0) ?? 0;
+
+  const title = step === 'lookup' ? 'Process Return' : step === 'select' ? `Return — ${sale?.sale_number}` : 'Return Processed';
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} size="lg">
+      {step === 'lookup' && (
+        <div className="space-y-4">
+          <p className="text-sm text-surface-500">Enter the sale number to look up the transaction.</p>
+          <div>
+            <label className="label">Sale Number</label>
+            <input type="text" className="input" value={saleNumber}
+              onChange={(e) => setSaleNumber(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
+              placeholder="INV-20260515-1234" autoFocus />
+          </div>
+          <button onClick={handleLookup} disabled={loading || !saleNumber.trim()} className="btn-primary w-full">
+            {loading ? <LoadingSpinner size="sm" /> : 'Find Sale'}
+          </button>
+        </div>
+      )}
+
+      {step === 'select' && sale && (
+        <div className="space-y-4">
+          <div className="bg-surface-50 rounded-xl p-3 text-sm grid grid-cols-3 gap-2">
+            <div><p className="text-xs text-surface-400">Sale #</p><p className="font-mono font-semibold">{sale.sale_number}</p></div>
+            <div><p className="text-xs text-surface-400">Date</p><p>{new Date(sale.created_at).toLocaleDateString()}</p></div>
+            <div><p className="text-xs text-surface-400">Total</p><p className="font-semibold">{fmt(sale.total_amount)}</p></div>
+          </div>
+
+          <div className="border border-surface-200 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-surface-50 text-xs uppercase text-surface-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Product</th>
+                  <th className="px-3 py-2 text-right">Sold</th>
+                  <th className="px-3 py-2 text-right">Returnable</th>
+                  <th className="px-3 py-2 text-center w-28">Return Qty</th>
+                  <th className="px-3 py-2 text-right">Refund</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-100">
+                {sale.items?.map((item) => {
+                  const maxReturnable = r2(item.quantity - (item.already_returned ?? 0));
+                  const isFullyReturned = maxReturnable <= 0;
+                  const qty = returnQtys[item.id] ?? 0;
+                  return (
+                    <tr key={item.id} className={isFullyReturned ? 'opacity-40 bg-surface-50' : ''}>
+                      <td className="px-3 py-2.5 font-medium">{item.product_name}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{item.quantity}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-emerald-600">{maxReturnable}</td>
+                      <td className="px-3 py-2.5">
+                        <input type="number" className="input text-center py-1 w-full" disabled={isFullyReturned}
+                          value={qty || ''} placeholder="0" min={0} max={maxReturnable} step={1}
+                          onChange={(e) => {
+                            const v = Math.min(maxReturnable, Math.max(0, parseFloat(e.target.value) || 0));
+                            setReturnQtys((prev) => ({ ...prev, [item.id]: v }));
+                          }} />
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-red-500">
+                        {qty > 0 ? `−${fmt(item.unit_price * qty)}` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label text-xs">Reason (optional)</label>
+              <input type="text" className="input py-2 text-sm" value={reason}
+                onChange={(e) => setReason(e.target.value)} placeholder="Damaged, wrong item..." />
+            </div>
+            <div>
+              <label className="label text-xs">Refund Method</label>
+              <select className="input py-2 text-sm" value={refundMethod}
+                onChange={(e) => setRefundMethod(e.target.value as 'cash' | 'card' | 'store_credit')}>
+                <option value="cash">Cash</option>
+                <option value="card">Card</option>
+                <option value="store_credit">Store Credit</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-surface-200">
+            <div>
+              <p className="text-xs text-surface-400">Total Refund</p>
+              <p className="text-2xl font-black text-red-500 font-mono">−{fmt(refundTotal)}</p>
+            </div>
+            <button onClick={handleProcessReturn} disabled={processing || refundTotal === 0}
+              className="btn-danger px-6 py-3 text-base font-semibold">
+              {processing ? <LoadingSpinner size="sm" /> : 'Process Return'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'receipt' && completedReturn && (
+        <div className="space-y-4 text-sm">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+            <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wide">Return Processed</p>
+            <p className="text-2xl font-black text-emerald-700 font-mono mt-1">{completedReturn.return_number}</p>
+            <p className="text-lg font-bold text-emerald-600 mt-1">Refund: {fmt(completedReturn.total_refund_amount)}</p>
+          </div>
+          <div className="space-y-1">
+            {completedReturn.items?.map((item, i) => (
+              <div key={i} className="flex justify-between text-surface-600">
+                <span>{item.product_name} × {item.quantity}</span>
+                <span className="font-mono">{fmt(item.refund_subtotal)}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={onClose} className="btn-primary w-full">Done</button>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -308,6 +490,7 @@ export default function POS() {
   const [applyingPromoId, setApplyingPromoId] = useState<number | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
+  const [isReturnOpen, setIsReturnOpen] = useState(false);
 
   // Check active shift
   useEffect(() => {
@@ -501,6 +684,16 @@ export default function POS() {
               <kbd className="px-1.5 py-0.5 bg-surface-100 rounded font-mono text-surface-600">F2</kbd><span>Search</span>
               <kbd className="ml-1 px-1.5 py-0.5 bg-surface-100 rounded font-mono text-surface-600">F10</kbd><span>Pay</span>
             </div>
+            <button
+              onClick={() => setIsReturnOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-100 text-surface-600 hover:bg-amber-50 hover:text-amber-700 text-sm font-medium transition-colors border border-surface-200"
+              title="Process a return"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              Return
+            </button>
           </div>
         </div>
 
@@ -821,6 +1014,7 @@ export default function POS() {
         isProcessing={isProcessing}
       />
       <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
+      <SaleReturnModal isOpen={isReturnOpen} onClose={() => setIsReturnOpen(false)} />
     </div>
   );
 }

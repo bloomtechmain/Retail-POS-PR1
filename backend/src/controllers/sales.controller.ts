@@ -19,6 +19,7 @@ export const list = async (req: AuthRequest, res: Response, next: NextFunction) 
       cashier_id: req.query.cashier_id ? parseInt(req.query.cashier_id as string) : undefined,
       shift_id: req.query.shift_id ? parseInt(req.query.shift_id as string) : undefined,
       status: req.query.status as string,
+      sale_number: req.query.sale_number as string,
     });
     res.json({ success: true, ...result });
   } catch (err) { next(err); }
@@ -35,5 +36,12 @@ export const voidSale = async (req: AuthRequest, res: Response, next: NextFuncti
   try {
     const sale = await salesService.voidSale(parseInt(req.params.id), req.body.reason, req.user!.id);
     res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const returnSale = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await salesService.returnSaleItems(parseInt(req.params.id), req.body, req.user!.id);
+    res.status(201).json({ success: true, data: result });
   } catch (err) { next(err); }
 };

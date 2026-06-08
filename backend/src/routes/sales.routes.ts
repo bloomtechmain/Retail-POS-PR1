@@ -10,5 +10,6 @@ router.get('/', salesController.list);
 router.get('/:id', salesController.getById);
 router.post('/', salesController.create);
 router.put('/:id/void', salesController.voidSale);
+router.post('/:id/return', salesController.returnSale);
 
 export default router;

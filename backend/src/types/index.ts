@@ -213,7 +213,41 @@ export interface SaleItem {
   tax_amount: number;
   subtotal: number;
   promotion_id?: number;
+  already_returned?: number;
   created_at: Date;
+}
+
+export interface SaleReturn {
+  id: number;
+  return_number: string;
+  sale_id: number;
+  shift_id: number;
+  processed_by: number;
+  return_reason?: string;
+  refund_method: 'cash' | 'card' | 'store_credit';
+  total_refund_amount: number;
+  notes?: string;
+  created_at: Date;
+  items?: SaleReturnItem[];
+}
+
+export interface SaleReturnItem {
+  id: number;
+  return_id: number;
+  sale_item_id: number;
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  cost_price: number;
+  refund_subtotal: number;
+}
+
+export interface ReturnSaleItemsPayload {
+  items: Array<{ sale_item_id: number; quantity: number }>;
+  return_reason?: string;
+  refund_method: 'cash' | 'card' | 'store_credit';
+  notes?: string;
 }
 
 export interface CartItem {

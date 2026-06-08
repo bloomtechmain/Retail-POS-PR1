@@ -92,9 +92,31 @@ export interface SaleItem {
   product_name: string;
   quantity: number;
   unit_price: number;
+  cost_price: number;
   item_discount: number;
   tax_amount: number;
   subtotal: number;
+  already_returned?: number;
+}
+
+export interface SaleReturn {
+  id: number;
+  return_number: string;
+  sale_id: number;
+  total_refund_amount: number;
+  refund_method: 'cash' | 'card' | 'store_credit';
+  return_reason?: string;
+  created_at: string;
+  items?: SaleReturnItem[];
+}
+
+export interface SaleReturnItem {
+  sale_item_id: number;
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  refund_subtotal: number;
 }
 
 export interface Shift {

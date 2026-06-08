@@ -1,8 +1,8 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateSaleNumber, round2 } from '../utils/helpers';
-import { Sale, CreateSalePayload } from '../types';
+import { generateSaleNumber, generateReturnNumber, round2, calculateWeightedAvgCost } from '../utils/helpers';
+import { Sale, CreateSalePayload, SaleReturn, ReturnSaleItemsPayload } from '../types';
 
 export const createSale = async (data: CreateSalePayload, cashierId: number): Promise<Sale> => {
   return transaction(async (client: PoolClient) => {
@@ -154,6 +154,7 @@ export const getSales = async (params: {
   cashier_id?: number;
   shift_id?: number;
   status?: string;
+  sale_number?: string;
 }) => {
   const page = params.page || 1;
   const limit = params.limit || 20;
@@ -181,6 +182,10 @@ export const getSales = async (params: {
   if (params.status) {
     conditions.push(`s.status = $${i++}`);
     values.push(params.status);
+  }
+  if (params.sale_number) {
+    conditions.push(`s.sale_number ILIKE $${i++}`);
+    values.push(`%${params.sale_number}%`);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -210,7 +215,16 @@ export const getSaleById = async (id: number): Promise<Sale> => {
   if (saleResult.rows.length === 0) throw createError('Sale not found', 404);
 
   const itemsResult = await query(
-    'SELECT * FROM sale_items WHERE sale_id = $1',
+    `SELECT si.*, COALESCE(ret.already_returned, 0) AS already_returned
+     FROM sale_items si
+     LEFT JOIN (
+       SELECT sri.sale_item_id, SUM(sri.quantity) AS already_returned
+       FROM sale_return_items sri
+       JOIN sale_returns sr ON sri.return_id = sr.id
+       WHERE sr.sale_id = $1
+       GROUP BY sri.sale_item_id
+     ) ret ON ret.sale_item_id = si.id
+     WHERE si.sale_id = $1`,
     [id]
   );
 
@@ -266,5 +280,151 @@ export const voidSale = async (id: number, reason: string, userId: number): Prom
     );
 
     return updated.rows[0];
+  });
+};
+
+export const returnSaleItems = async (
+  saleId: number,
+  data: ReturnSaleItemsPayload,
+  userId: number
+): Promise<SaleReturn> => {
+  return transaction(async (client: PoolClient) => {
+    // Validate sale
+    const saleResult = await client.query(
+      `SELECT * FROM sales WHERE id = $1 AND status IN ('completed', 'refunded')`,
+      [saleId]
+    );
+    if (saleResult.rows.length === 0) throw createError('Sale not found or cannot be refunded', 404);
+
+    // Require open shift
+    const shiftResult = await client.query(
+      `SELECT id FROM shifts WHERE opened_by = $1 AND status = 'open' ORDER BY open_time DESC LIMIT 1`,
+      [userId]
+    );
+    if (shiftResult.rows.length === 0) throw createError('No open shift. Open a shift before processing a return.', 400);
+    const shiftId = shiftResult.rows[0].id;
+
+    // Load original sale items
+    const originalItemsResult = await client.query('SELECT * FROM sale_items WHERE sale_id = $1', [saleId]);
+    const originalItems = originalItemsResult.rows;
+    const originalItemMap = new Map(originalItems.map((i: any) => [i.id, i]));
+
+    // Load already-returned quantities per sale_item_id
+    const alreadyReturnedResult = await client.query(
+      `SELECT sri.sale_item_id, SUM(sri.quantity) AS returned_qty
+       FROM sale_return_items sri
+       JOIN sale_returns sr ON sri.return_id = sr.id
+       WHERE sr.sale_id = $1
+       GROUP BY sri.sale_item_id`,
+      [saleId]
+    );
+    const returnedQtyMap = new Map<number, number>(
+      alreadyReturnedResult.rows.map((r: any) => [parseInt(r.sale_item_id), parseFloat(r.returned_qty)])
+    );
+
+    // Validate return quantities and build processed items
+    let totalRefundAmount = 0;
+    const processedItems: any[] = [];
+
+    for (const returnItem of data.items) {
+      const original = originalItemMap.get(returnItem.sale_item_id) as any;
+      if (!original) throw createError(`Item ${returnItem.sale_item_id} does not belong to this sale`, 400);
+
+      const alreadyReturned = returnedQtyMap.get(returnItem.sale_item_id) ?? 0;
+      const remainingReturnable = round2(parseFloat(original.quantity) - alreadyReturned);
+
+      if (returnItem.quantity <= 0) throw createError('Return quantity must be greater than 0', 400);
+      if (returnItem.quantity > remainingReturnable) {
+        throw createError(
+          `Cannot return ${returnItem.quantity} of "${original.product_name}". Max returnable: ${remainingReturnable}`,
+          400
+        );
+      }
+
+      const refundSubtotal = round2(parseFloat(original.unit_price) * returnItem.quantity);
+      totalRefundAmount += refundSubtotal;
+
+      processedItems.push({
+        sale_item_id: returnItem.sale_item_id,
+        product_id: original.product_id,
+        product_name: original.product_name,
+        quantity: returnItem.quantity,
+        unit_price: parseFloat(original.unit_price),
+        cost_price: parseFloat(original.cost_price),
+        refund_subtotal: refundSubtotal,
+      });
+    }
+
+    totalRefundAmount = round2(totalRefundAmount);
+
+    // Insert sale_returns header
+    const returnNumber = generateReturnNumber();
+    const returnResult = await client.query(
+      `INSERT INTO sale_returns (return_number, sale_id, shift_id, processed_by, return_reason, refund_method, total_refund_amount, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [returnNumber, saleId, shiftId, userId, data.return_reason || null, data.refund_method, totalRefundAmount, data.notes || null]
+    );
+    const returnRecord = returnResult.rows[0];
+
+    // Process each item: insert return item, restore stock, recalculate avg_cost
+    for (const item of processedItems) {
+      await client.query(
+        `INSERT INTO sale_return_items (return_id, sale_item_id, product_id, product_name, quantity, unit_price, cost_price, refund_subtotal)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [returnRecord.id, item.sale_item_id, item.product_id, item.product_name, item.quantity, item.unit_price, item.cost_price, item.refund_subtotal]
+      );
+
+      const productResult = await client.query(
+        'SELECT current_stock, avg_cost FROM products WHERE id = $1 FOR UPDATE',
+        [item.product_id]
+      );
+      const product = productResult.rows[0];
+      const currentStock = parseFloat(product.current_stock);
+      const currentAvgCost = parseFloat(product.avg_cost);
+      const balanceBefore = currentStock;
+      const balanceAfter = round2(currentStock + item.quantity);
+      const newAvgCost = calculateWeightedAvgCost(currentStock, currentAvgCost, item.quantity, item.cost_price);
+
+      await client.query(
+        'UPDATE products SET current_stock = $1, avg_cost = $2, updated_at = NOW() WHERE id = $3',
+        [balanceAfter, newAvgCost, item.product_id]
+      );
+
+      await client.query(
+        `INSERT INTO stock_movements (product_id, movement_type, quantity, balance_before, balance_after, unit_cost, reference_type, reference_id, created_by)
+         VALUES ($1,'return_in',$2,$3,$4,$5,'sale_return',$6,$7)`,
+        [item.product_id, item.quantity, balanceBefore, balanceAfter, item.cost_price, returnRecord.id, userId]
+      );
+    }
+
+    // Determine new sale status — 'refunded' if all items fully returned
+    const updatedReturnedResult = await client.query(
+      `SELECT sri.sale_item_id, SUM(sri.quantity) AS total_returned
+       FROM sale_return_items sri
+       JOIN sale_returns sr ON sri.return_id = sr.id
+       WHERE sr.sale_id = $1
+       GROUP BY sri.sale_item_id`,
+      [saleId]
+    );
+    const updatedReturnedMap = new Map<number, number>(
+      updatedReturnedResult.rows.map((r: any) => [parseInt(r.sale_item_id), parseFloat(r.total_returned)])
+    );
+    const allFullyReturned = originalItems.every((oi: any) => {
+      const totalReturned = updatedReturnedMap.get(oi.id) ?? 0;
+      return round2(totalReturned) >= round2(parseFloat(oi.quantity));
+    });
+
+    await client.query(
+      `UPDATE sales SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [allFullyReturned ? 'refunded' : 'completed', saleId]
+    );
+
+    // Deduct from shift totals
+    await client.query(
+      'UPDATE shifts SET total_sales = total_sales - $1 WHERE id = $2',
+      [totalRefundAmount, shiftId]
+    );
+
+    return { ...returnRecord, items: processedItems };
   });
 };
