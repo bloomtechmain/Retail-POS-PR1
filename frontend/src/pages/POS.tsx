@@ -42,8 +42,8 @@ function ItemOfferPopup({
 }) {
   if (!item) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-    <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-surface-200 animate-in overflow-hidden mx-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed z-50 top-16 left-0 right-0 bottom-0 flex items-center justify-center pointer-events-none">
+    <div className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl border-2 border-primary-100 animate-in overflow-hidden mx-4">
       {/* Header */}
       <div className="bg-primary-600 px-4 py-3 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
