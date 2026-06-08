@@ -155,7 +155,7 @@ export default function Promotions() {
             <label className="label">{t.promo_name_label}</label>
             <input className="input" value={form.name || ''} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">{t.promo_type_label}</label>
               <select className="input" value={form.type} onChange={(e) => setForm(f => ({ ...f, type: e.target.value as Promotion['type'] }))}>
@@ -170,7 +170,7 @@ export default function Promotions() {
               <input type="number" className="input" value={form.discount_value || ''} onChange={(e) => setForm(f => ({ ...f, discount_value: parseFloat(e.target.value) || 0 }))} min="0" step="0.01" placeholder={form.type === 'percentage' ? '10 for 10%' : '5.00'} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">{t.promo_applies_label}</label>
               <select className="input" value={form.applies_to} onChange={(e) => setForm(f => ({ ...f, applies_to: e.target.value as Promotion['applies_to'] }))}>
@@ -198,7 +198,7 @@ export default function Promotions() {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">{t.promo_start_date}</label>
               <input type="date" className="input" value={form.start_date || ''} onChange={(e) => setForm(f => ({ ...f, start_date: e.target.value }))} />

@@ -93,13 +93,13 @@ export default function Products() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4">
         <input
-          type="text" className="input max-w-xs"
+          type="text" className="input w-full sm:max-w-xs"
           placeholder={t.products_search_placeholder}
           value={search} onChange={(e) => setSearch(e.target.value)}
         />
-        <select className="input max-w-[180px]" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+        <select className="input w-full sm:max-w-[180px]" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="">{t.products_all_categories}</option>
           {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
@@ -180,7 +180,7 @@ export default function Products() {
           </>
         }
       >
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className="label">{t.products_name_label} <span className="font-normal text-surface-400">{t.products_name_hint}</span></label>
             <input className="input" value={editProduct.name || ''} onChange={(e) => setEditProduct(p => ({ ...p, name: e.target.value }))} placeholder={t.products_name_placeholder} />

@@ -187,7 +187,7 @@ export default function Users() {
             <label className="label">{isEditing ? t.users_password_edit : t.users_password}</label>
             <input type="password" className="input" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} placeholder={isEditing ? t.users_password_placeholder_edit : t.users_password_placeholder_new} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">{t.users_role}</label>
               <select className="input" value={form.role_id} onChange={(e) => setForm(f => ({ ...f, role_id: e.target.value }))}>

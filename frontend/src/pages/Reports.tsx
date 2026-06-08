@@ -72,7 +72,7 @@ export default function Reports() {
 
       {/* Date Range (not for inventory) */}
       {tab !== 'inventory' && (
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex flex-wrap items-end gap-3 mb-4">
           <div>
             <label className="label">{t.reports_from}</label>
             <input type="date" className="input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -92,7 +92,7 @@ export default function Reports() {
           {/* SALES REPORT */}
           {tab === 'sales' && salesData && (
             <>
-              <div className="grid grid-cols-4 gap-4 mb-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                 {[
                   [t.reports_total_sales, fmt(salesData.summary?.total_revenue || 0), 'text-primary-600'],
                   [t.reports_total_profit, fmt(salesData.summary?.total_profit || 0), 'text-emerald-600'],

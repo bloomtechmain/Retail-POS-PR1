@@ -186,7 +186,7 @@ export default function GRNPage() {
         }
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">{t.grn_form_supplier}</label>
               <select className="input" value={form.supplier_id} onChange={(e) => setForm(f => ({ ...f, supplier_id: e.target.value }))}>
@@ -286,7 +286,7 @@ export default function GRNPage() {
       >
         {selectedGRN && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div><span className="text-surface-500">{t.grn_view_supplier}: </span><span>{selectedGRN.supplier_name || '—'}</span></div>
               <div><span className="text-surface-500">{t.grn_view_invoice}: </span><span className="font-mono">{selectedGRN.invoice_number || '—'}</span></div>
               <div><span className="text-surface-500">{t.grn_view_date}: </span><span>{new Date(selectedGRN.received_date).toLocaleDateString()}</span></div>

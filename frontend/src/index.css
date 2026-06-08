@@ -156,7 +156,7 @@
   }
 
   /* ── Page layout ─────────────────────────────────────────────────────────── */
-  .page-header { @apply flex items-center justify-between mb-6; }
+  .page-header { @apply flex flex-wrap items-center justify-between gap-y-2 mb-6; }
 
   .page-title  { @apply text-xl font-semibold text-surface-900; }
 

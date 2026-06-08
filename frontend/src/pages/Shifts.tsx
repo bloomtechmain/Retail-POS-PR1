@@ -215,7 +215,7 @@ export default function Shifts() {
       <Modal isOpen={reportModal} onClose={() => setReportModal(false)} title={t.shifts_report_title} size="xl">
         {shiftReport && (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 [t.shifts_report_revenue, fmt(shiftReport.summary.total_revenue || 0), 'text-primary-600'],
                 [t.shifts_report_profit, fmt(shiftReport.summary.total_profit || 0), 'text-emerald-600'],

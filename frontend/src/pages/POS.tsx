@@ -549,6 +549,7 @@ export default function POS() {
   const [applyingPromoId, setApplyingPromoId] = useState<number | null>(null);
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
   const [isReturnOpen, setIsReturnOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<'cart' | 'bill'>('cart');
 
   // Check active shift
   useEffect(() => {
@@ -594,6 +595,7 @@ export default function POS() {
       setCompletedSale(detail.data.data);
       setIsPaymentOpen(false);
       pos.clearCart();
+      setMobileView('cart');
       toast.success(`Sale ${r.data.data.sale_number} completed`);
     } catch (err) {
       const e = err as AxiosError<{ message: string }>;
@@ -681,7 +683,7 @@ export default function POS() {
     <div className="flex h-screen overflow-hidden bg-surface-100 no-print">
 
       {/* ── LEFT: Cart Main Area ──────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className={`flex-1 flex-col min-w-0 overflow-hidden ${mobileView === 'bill' ? 'hidden md:flex' : 'flex'}`}>
 
         {/* Top Bar */}
         <div className="bg-white border-b border-surface-200 px-5 py-3 flex items-center gap-4">
@@ -802,28 +804,51 @@ export default function POS() {
 
         {/* Cart footer — item count + clear */}
         {pos.cart.length > 0 && (
-          <div className="bg-white border-t border-surface-200 px-6 py-3 flex items-center justify-between">
+          <div className="bg-white border-t border-surface-200 px-4 md:px-6 py-3 flex items-center justify-between gap-2">
             <span className="text-sm text-surface-500 font-medium">
               {pos.cart.length} {pos.cart.length !== 1 ? t.pos_lines_plural : t.pos_lines} &nbsp;·&nbsp;{' '}
               {pos.cart.reduce((s, i) => s + i.quantity, 0).toFixed(0)} {t.pos_items_total}
             </span>
-            <button
-              onClick={() => pos.clearCart()}
-              className="text-sm text-red-400 hover:text-red-600 font-semibold transition-colors"
-            >
-              {t.pos_clear_cart}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Mobile: View Bill button */}
+              <button
+                onClick={() => setMobileView('bill')}
+                className="md:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                </svg>
+                Bill
+              </button>
+              <button
+                onClick={() => pos.clearCart()}
+                className="text-sm text-red-400 hover:text-red-600 font-semibold transition-colors"
+              >
+                {t.pos_clear_cart}
+              </button>
+            </div>
           </div>
         )}
       </div>
 
       {/* ── RIGHT: Bill Summary ───────────────────────────────────────────────── */}
-      <div className="w-72 xl:w-80 bg-white border-l border-surface-200 flex flex-col shrink-0">
+      <div className={`w-full md:w-72 xl:w-80 bg-white md:border-l border-surface-200 flex-col shrink-0 ${mobileView === 'cart' ? 'hidden md:flex' : 'flex'}`}>
 
         {/* Header */}
-        <div className="px-5 py-4 border-b border-surface-100">
-          <h2 className="font-semibold text-surface-900">{t.pos_bill_summary}</h2>
-          <p className="text-xs text-surface-400 mt-0.5">{new Date().toLocaleTimeString()}</p>
+        <div className="px-5 py-4 border-b border-surface-100 flex items-center gap-3">
+          {/* Mobile back button */}
+          <button
+            onClick={() => setMobileView('cart')}
+            className="md:hidden p-1.5 rounded-lg text-surface-500 hover:bg-surface-100 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div>
+            <h2 className="font-semibold text-surface-900">{t.pos_bill_summary}</h2>
+            <p className="text-xs text-surface-400 mt-0.5">{new Date().toLocaleTimeString()}</p>
+          </div>
         </div>
 
         {/* Optional fields */}

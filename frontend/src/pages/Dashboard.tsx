@@ -51,7 +51,7 @@ export default function Dashboard() {
           ) : (
             <span className="badge-red">{t.dashboard_no_shift}</span>
           )}
-          <span className="text-sm text-surface-500">
+          <span className="hidden sm:inline text-sm text-surface-500">
             {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </span>
         </div>

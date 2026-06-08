@@ -3,7 +3,12 @@ import { useAuthStore } from '../../store/authStore';
 import { useLanguageStore } from '../../store/languageStore';
 import { useT } from '../../i18n/translations';
 
-export function Sidebar() {
+interface SidebarProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function Sidebar({ open, onClose }: SidebarProps) {
   const { user, logout, hasPermission } = useAuthStore();
   const navigate = useNavigate();
   const { lang, toggleLang } = useLanguageStore();
@@ -66,7 +71,9 @@ export function Sidebar() {
 
   return (
     <aside
-      className="fixed left-0 top-0 h-full w-[220px] flex flex-col z-40 no-print"
+      className={`fixed left-0 top-0 h-full w-[220px] flex flex-col z-40 no-print
+        transition-transform duration-300 ease-in-out
+        ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       style={{
         background: 'linear-gradient(180deg, #0d1526 0%, #0f172a 40%, #0c1322 100%)',
         borderRight: '1px solid rgba(255,255,255,0.05)',
@@ -75,7 +82,6 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-5 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center gap-2.5">
-          {/* Logo */}
           <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-md overflow-hidden">
             <img src="/logo.png" alt="BloomPOS" className="w-full h-full object-contain" />
           </div>
@@ -105,6 +111,7 @@ export function Sidebar() {
           <NavLink
             key={item.path}
             to={item.path}
+            onClick={onClose}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                 isActive
@@ -125,7 +132,6 @@ export function Sidebar() {
               }
             }}
             onMouseLeave={(e) => {
-              // Let React re-render handle active styling; only reset non-active
               const el = e.currentTarget as HTMLElement;
               if (!el.style.boxShadow) {
                 el.style.background = 'transparent';
@@ -141,7 +147,6 @@ export function Sidebar() {
       {/* User */}
       <div className="px-3 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg">
-          {/* Avatar with gradient */}
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 shadow-sm"
             style={{ background: 'linear-gradient(135deg, #38bdf8 0%, #0369a1 100%)' }}
