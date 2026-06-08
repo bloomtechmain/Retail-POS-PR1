@@ -19,8 +19,11 @@ export default function GRNPage() {
   const [loading, setLoading] = useState(true);
   const [createModal, setCreateModal] = useState(false);
   const [viewModal, setViewModal] = useState(false);
+  const [returnModal, setReturnModal] = useState(false);
   const [selectedGRN, setSelectedGRN] = useState<GRN | null>(null);
   const [saving, setSaving] = useState(false);
+  const [returnItems, setReturnItems] = useState<Record<number, string>>({});
+  const [returnNotes, setReturnNotes] = useState('');
 
   const [form, setForm] = useState({
     supplier_id: '',
@@ -85,6 +88,37 @@ export default function GRNPage() {
     const r = await api.get(`/grn/${id}`);
     setSelectedGRN(r.data.data);
     setViewModal(true);
+  };
+
+  const openReturn = () => {
+    const init: Record<number, string> = {};
+    selectedGRN?.items?.forEach((i) => { init[i.id!] = ''; });
+    setReturnItems(init);
+    setReturnNotes('');
+    setReturnModal(true);
+  };
+
+  const handleReturn = async () => {
+    const itemsToReturn = selectedGRN?.items
+      ?.filter((i) => parseFloat(returnItems[i.id!] || '0') > 0)
+      .map((i) => ({
+        grn_item_id: i.id,
+        product_id: i.product_id,
+        quantity: parseFloat(returnItems[i.id!]),
+        buying_price: Number(i.buying_price),
+      }));
+    if (!itemsToReturn?.length) { toast.error('Enter quantity to return for at least one item'); return; }
+    setSaving(true);
+    try {
+      await api.post(`/grn/${selectedGRN!.id}/return`, { items: itemsToReturn, notes: returnNotes });
+      toast.success('GRN return processed and stock deducted');
+      setReturnModal(false);
+      setViewModal(false);
+      load();
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Failed to process return');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -230,7 +264,26 @@ export default function GRNPage() {
       </Modal>
 
       {/* View Modal */}
-      <Modal isOpen={viewModal} onClose={() => setViewModal(false)} title={`GRN: ${selectedGRN?.grn_number}`} size="xl">
+      <Modal
+        isOpen={viewModal}
+        onClose={() => setViewModal(false)}
+        title={`GRN: ${selectedGRN?.grn_number}`}
+        size="xl"
+        footer={
+          <div className="flex justify-between w-full">
+            <button
+              onClick={openReturn}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 font-semibold text-sm transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              Return Stock
+            </button>
+            <button onClick={() => setViewModal(false)} className="btn-secondary">Close</button>
+          </div>
+        }
+      >
         {selectedGRN && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -259,6 +312,70 @@ export default function GRNPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </Modal>
+
+      {/* Return Modal */}
+      <Modal
+        isOpen={returnModal}
+        onClose={() => setReturnModal(false)}
+        title={`Return Stock — ${selectedGRN?.grn_number}`}
+        size="xl"
+        footer={
+          <>
+            <button onClick={() => setReturnModal(false)} className="btn-secondary">Cancel</button>
+            <button onClick={handleReturn} disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 font-semibold text-sm disabled:opacity-40">
+              {saving ? 'Processing…' : 'Confirm Return & Deduct Stock'}
+            </button>
+          </>
+        }
+      >
+        {selectedGRN && (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+              Enter the quantity to return for each item. Stock will be deducted immediately.
+            </div>
+            <table className="table border border-surface-200 rounded-lg overflow-hidden">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th className="text-right">Received Qty</th>
+                  <th className="text-right">Buying Price</th>
+                  <th className="text-right w-36">Return Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedGRN.items?.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.product_name}</td>
+                    <td className="text-right font-mono">{Number(item.quantity).toFixed(3)}</td>
+                    <td className="text-right font-mono">{fmt(item.buying_price)}</td>
+                    <td className="text-right">
+                      <input
+                        type="number"
+                        className="input py-1 text-sm font-mono text-right w-28"
+                        placeholder="0"
+                        min="0"
+                        max={Number(item.quantity)}
+                        step="0.001"
+                        value={returnItems[item.id!] ?? ''}
+                        onChange={(e) => setReturnItems((r) => ({ ...r, [item.id!]: e.target.value }))}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div>
+              <label className="label">Reason / Notes</label>
+              <input
+                className="input"
+                placeholder="e.g. Damaged goods, wrong delivery"
+                value={returnNotes}
+                onChange={(e) => setReturnNotes(e.target.value)}
+              />
+            </div>
           </div>
         )}
       </Modal>

@@ -53,6 +53,25 @@ export const runMigrations = async (): Promise<void> => {
       `CREATE INDEX IF NOT EXISTS idx_sale_returns_shift ON sale_returns(shift_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sale_return_items_ret ON sale_return_items(return_id)`,
       `CREATE INDEX IF NOT EXISTS idx_sale_return_items_si ON sale_return_items(sale_item_id)`,
+      `CREATE TABLE IF NOT EXISTS grn_returns (
+        id SERIAL PRIMARY KEY,
+        return_number VARCHAR(100) UNIQUE NOT NULL,
+        grn_id INTEGER NOT NULL REFERENCES grn(id),
+        notes TEXT,
+        total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE TABLE IF NOT EXISTS grn_return_items (
+        id SERIAL PRIMARY KEY,
+        grn_return_id INTEGER NOT NULL REFERENCES grn_returns(id) ON DELETE CASCADE,
+        grn_item_id INTEGER NOT NULL REFERENCES grn_items(id),
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        quantity DECIMAL(12,3) NOT NULL,
+        buying_price DECIMAL(12,4) NOT NULL,
+        subtotal DECIMAL(12,2) NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_grn_returns_grn ON grn_returns(grn_id)`,
     ];
     for (const sql of alterations) {
       await query(sql, []);

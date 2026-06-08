@@ -27,6 +27,25 @@ export const create = async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 };
 
+export const listReturns = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await grnService.getGRNReturns(parseInt(req.params.id));
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+export const createReturn = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ret = await grnService.createGRNReturn(
+      parseInt(req.params.id),
+      req.body.items,
+      req.body.notes,
+      req.user!.id
+    );
+    res.status(201).json({ success: true, data: ret });
+  } catch (err) { next(err); }
+};
+
 export const listSuppliers = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const suppliers = await grnService.getSuppliers();

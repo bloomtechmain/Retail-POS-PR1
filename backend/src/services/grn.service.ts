@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateGRNNumber, calculateWeightedAvgCost, round2 } from '../utils/helpers';
+import { generateGRNNumber, generateReturnNumber, calculateWeightedAvgCost, round2 } from '../utils/helpers';
 import { GRN, GRNItem } from '../types';
 
 export const getGRNs = async (params: { page?: number; limit?: number; search?: string }) => {
@@ -149,6 +149,76 @@ export const createGRN = async (
     }
 
     return grn;
+  });
+};
+
+export const getGRNReturns = async (grnId: number) => {
+  const result = await query(
+    `SELECT gr.*, u.name as created_by_name,
+            json_agg(json_build_object(
+              'id', gri.id, 'product_id', gri.product_id,
+              'product_name', p.name, 'sku', p.sku,
+              'quantity', gri.quantity, 'buying_price', gri.buying_price, 'subtotal', gri.subtotal
+            )) as items
+     FROM grn_returns gr
+     LEFT JOIN users u ON gr.created_by = u.id
+     LEFT JOIN grn_return_items gri ON gri.grn_return_id = gr.id
+     LEFT JOIN products p ON p.id = gri.product_id
+     WHERE gr.grn_id = $1
+     GROUP BY gr.id, u.name
+     ORDER BY gr.created_at DESC`,
+    [grnId]
+  );
+  return result.rows;
+};
+
+export const createGRNReturn = async (
+  grnId: number,
+  items: Array<{ grn_item_id: number; product_id: number; quantity: number; buying_price: number }>,
+  notes: string | undefined,
+  userId: number
+) => {
+  return transaction(async (client: PoolClient) => {
+    const returnNumber = generateReturnNumber();
+    const totalAmount = round2(items.reduce((s, i) => s + i.quantity * i.buying_price, 0));
+
+    const retResult = await client.query(
+      `INSERT INTO grn_returns (return_number, grn_id, notes, total_amount, created_by)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [returnNumber, grnId, notes || null, totalAmount, userId]
+    );
+    const ret = retResult.rows[0];
+
+    for (const item of items) {
+      const subtotal = round2(item.quantity * item.buying_price);
+      await client.query(
+        `INSERT INTO grn_return_items (grn_return_id, grn_item_id, product_id, quantity, buying_price, subtotal)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [ret.id, item.grn_item_id, item.product_id, item.quantity, item.buying_price, subtotal]
+      );
+
+      // Deduct stock
+      const prodResult = await client.query(
+        'SELECT current_stock FROM products WHERE id = $1 FOR UPDATE',
+        [item.product_id]
+      );
+      const balanceBefore = round2(Number(prodResult.rows[0].current_stock));
+      const balanceAfter  = round2(balanceBefore - item.quantity);
+
+      await client.query(
+        'UPDATE products SET current_stock = $1, updated_at = NOW() WHERE id = $2',
+        [balanceAfter, item.product_id]
+      );
+
+      await client.query(
+        `INSERT INTO stock_movements
+           (product_id, movement_type, quantity, balance_before, balance_after, unit_cost, reference_type, reference_id, created_by)
+         VALUES ($1,'grn_return',$2,$3,$4,$5,'grn_return',$6,$7)`,
+        [item.product_id, item.quantity, balanceBefore, balanceAfter, item.buying_price, ret.id, userId]
+      );
+    }
+
+    return ret;
   });
 };
 
