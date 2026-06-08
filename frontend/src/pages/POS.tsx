@@ -731,66 +731,68 @@ export default function POS() {
             return (
               <div key={item.product_id} className="bg-primary-50 rounded-lg border border-primary-100 shadow-sm overflow-hidden flex">
 
-                {/* Left: item row */}
-                <div className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-1.5">
-                  {/* # badge */}
-                  <span className="shrink-0 w-5 h-5 rounded-full bg-primary-200 text-primary-700 text-[10px] font-bold flex items-center justify-center select-none">
-                    {index + 1}
-                  </span>
+                {/* Left: 2-row layout */}
+                <div className="flex-1 min-w-0 flex flex-col px-2.5 pt-1.5 pb-2 gap-1.5">
 
-                  {/* Name + unit price info — fills the middle gap */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-surface-900 truncate leading-tight">{item.product_name}</p>
-                    {canOverridePrice ? (
-                      <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="text-[10px] font-mono text-primary-600 border-b border-primary-300 bg-transparent focus:outline-none w-20 leading-none" min="0" step="0.01" />
-                    ) : (
-                      <p className="text-[10px] text-surface-400 font-mono leading-none">{fmt(item.unit_price)} × {item.quantity}</p>
-                    )}
+                  {/* Row 1: # + name + total + remove */}
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 w-5 h-5 rounded-full bg-primary-200 text-primary-700 text-[10px] font-bold flex items-center justify-center select-none">
+                      {index + 1}
+                    </span>
+                    <p className="flex-1 min-w-0 text-xs font-semibold text-surface-900 truncate">{item.product_name}</p>
+                    <p className="text-sm font-black text-surface-900 font-mono shrink-0">
+                      {fmt((item.unit_price - item.item_discount) * item.quantity)}
+                    </p>
+                    <button onClick={() => pos.removeItem(item.product_id)} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
 
-                  {/* Qty controls */}
-                  <div className="flex items-center border border-primary-200 rounded overflow-hidden h-6 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
-                    <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-6 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none text-sm">−</button>
-                    <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-8 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900" min="0.001" step="1" />
-                    <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-6 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none text-sm">+</button>
+                  {/* Row 2: qty + discount + unit price (bottom-right) */}
+                  <div className="flex items-center gap-2 pl-7">
+                    {/* Qty controls */}
+                    <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
+                      <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
+                      <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900" min="0.001" step="1" />
+                      <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
+                    </div>
+
+                    {/* Discount */}
+                    <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-20 text-right bg-white focus:outline-none focus:border-red-400 text-red-500" placeholder="Discount" min="0" step="0.01" />
+
+                    {/* Unit price — bottom right */}
+                    <div className="flex-1 flex justify-end items-center">
+                      {canOverridePrice ? (
+                        <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700" min="0" step="0.01" />
+                      ) : (
+                        <p className="text-xs text-surface-400 font-mono">{fmt(item.unit_price)} × {item.quantity}</p>
+                      )}
+                    </div>
                   </div>
-
-                  {/* Discount */}
-                  <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-6 px-1.5 text-xs font-mono border border-primary-200 rounded w-16 text-right bg-white focus:outline-none focus:border-red-400 text-red-500" placeholder="-disc" min="0" step="0.01" />
-
-                  {/* Total */}
-                  <div className="text-right shrink-0 w-20">
-                    <p className="text-sm font-black text-surface-900 font-mono leading-tight">{fmt((item.unit_price - item.item_discount) * item.quantity)}</p>
-                    {item.item_discount > 0 && <p className="text-[10px] text-red-400 font-mono line-through leading-none">{fmt(item.unit_price * item.quantity)}</p>}
-                  </div>
-
-                  {/* Remove */}
-                  <button onClick={() => pos.removeItem(item.product_id)} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
                 </div>
 
-                {/* Right: offers — description + full-height Apply */}
+                {/* Right: offer panel — entire section is the button */}
                 {itemPromos.length > 0 && (
-                  <div className="border-l border-amber-200 bg-amber-50 shrink-0 flex flex-col divide-y divide-amber-100">
+                  <div className="border-l border-amber-200 shrink-0 flex flex-col divide-y divide-amber-200 w-28">
                     {itemPromos.map((promo) => {
                       const isApplied = pos.appliedPromotionIds.includes(promo.id);
                       const isApplying = applyingPromoId === promo.id;
                       return (
-                        <div key={promo.id} className="flex items-stretch">
-                          <p className={`w-36 px-2.5 py-1 text-xs font-medium leading-tight flex items-center ${isApplied ? 'text-emerald-700' : 'text-amber-800'}`}>
-                            {promoDesc(promo)}
-                          </p>
-                          <button
-                            onClick={() => !isApplied && handleApplyPromotion(promo)}
-                            disabled={isApplied || !!isApplying}
-                            className={`w-16 text-sm font-bold transition-all border-l ${isApplied ? 'bg-emerald-100 text-emerald-700 border-emerald-200 cursor-default' : 'bg-amber-500 text-white border-amber-400 hover:bg-amber-600 active:bg-amber-700 disabled:opacity-40'}`}
-                          >
-                            {isApplying ? '…' : isApplied ? '✓' : 'Apply'}
-                          </button>
-                        </div>
+                        <button
+                          key={promo.id}
+                          onClick={() => !isApplied && handleApplyPromotion(promo)}
+                          disabled={isApplied || !!isApplying}
+                          className={`flex-1 flex flex-col items-center justify-center gap-0.5 px-2 py-1 transition-all disabled:opacity-50 ${
+                            isApplied
+                              ? 'bg-emerald-100 text-emerald-700 cursor-default'
+                              : 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700'
+                          }`}
+                        >
+                          <span className="text-[10px] font-medium text-center leading-tight">{promoDesc(promo)}</span>
+                          <span className="text-sm font-black">{isApplying ? '…' : isApplied ? '✓ Applied' : 'Apply'}</span>
+                        </button>
                       );
                     })}
                   </div>
