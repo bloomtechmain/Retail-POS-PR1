@@ -749,13 +749,13 @@ export default function POS() {
 
                   {/* Unit price */}
                   {canOverridePrice ? (
-                    <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-sm font-mono border border-primary-200 rounded w-22 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Price" min="0" step="0.01" />
+                    <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-sm font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Price" min="0" step="0.01" />
                   ) : (
                     <p className="text-sm text-surface-500 font-mono shrink-0">{fmt(item.unit_price)}</p>
                   )}
 
                   {/* Discount */}
-                  <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-sm font-mono border border-primary-200 rounded w-22 text-right bg-white focus:outline-none focus:border-red-400 text-red-500 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Disc" min="0" step="0.01" />
+                  <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-sm font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-red-400 text-red-500 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Disc" min="0" step="0.01" />
 
                   {/* Spacer pushes total+remove to far right */}
                   <div className="flex-1" />
