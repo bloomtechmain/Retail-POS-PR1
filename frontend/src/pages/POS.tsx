@@ -532,6 +532,7 @@ export default function POS() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
   const [isReturnOpen, setIsReturnOpen] = useState(false);
+  const [spotlightId, setSpotlightId] = useState<number | null>(null);
 
   // Check active shift
   useEffect(() => {
@@ -584,6 +585,7 @@ export default function POS() {
       setCompletedSale(detail.data.data);
       setIsPaymentOpen(false);
       pos.clearCart();
+      setSpotlightId(null);
       toast.success(`Sale ${r.data.data.sale_number} completed`);
     } catch (err) {
       const e = err as AxiosError<{ message: string }>;
@@ -646,18 +648,25 @@ export default function POS() {
     [pos.cart, selectedItemId]
   );
 
-  // Default view: 'all'-scope promos (percentage + flat off entire bill)
-  // Item selected: promos targeting that specific product or its category
-  const visiblePromos = useMemo(() => {
-    if (!selectedItem) {
-      return activePromos.filter((p) => p.applies_to === 'all');
-    }
+  const spotlightItem = useMemo(
+    () => pos.cart.find((i) => i.product_id === spotlightId) ?? null,
+    [pos.cart, spotlightId]
+  );
+
+  // Promotions for the spotlight product (product + category specific)
+  const productPromotions = useMemo(() => {
+    if (!spotlightItem) return [];
     return activePromos.filter((p) =>
-      p.applies_to === 'all' ||
-      (p.applies_to === 'product' && p.product_id === selectedItem.product_id) ||
-      (p.applies_to === 'category' && p.category_id != null && p.category_id === selectedItem.category_id)
+      (p.applies_to === 'product' && p.product_id === spotlightItem.product_id) ||
+      (p.applies_to === 'category' && p.category_id != null && p.category_id === spotlightItem.category_id)
     );
-  }, [activePromos, selectedItem]);
+  }, [activePromos, spotlightItem]);
+
+  // Bill-wide promotions (applies to all items) shown in the bill summary
+  const billPromos = useMemo(
+    () => activePromos.filter((p) => p.applies_to === 'all'),
+    [activePromos]
+  );
 
   // ── Open Shift Screen ──────────────────────────────────────────────────────
   if (hasShift === null) {
@@ -706,7 +715,7 @@ export default function POS() {
         <div className="bg-white border-b border-surface-200 px-5 py-3 flex items-center gap-4">
           {/* Search */}
           <div className="flex-1 max-w-2xl">
-            <ProductSearch onAdd={(p) => pos.addProduct(p)} />
+            <ProductSearch onAdd={(p) => { pos.addProduct(p); setSpotlightId(p.id); }} />
           </div>
 
           {/* Shift info */}
@@ -763,6 +772,7 @@ export default function POS() {
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest('input,button')) return;
                     setSelectedItemId(item.product_id === selectedItemId ? null : item.product_id);
+                    setSpotlightId(item.product_id);
                   }}
                   className={`px-6 py-5 grid grid-cols-[2.5rem_1fr_11rem_10rem_10rem_9rem_2.5rem] gap-4 items-center transition-colors animate-in group cursor-pointer ${
                     selectedItemId === item.product_id
@@ -908,32 +918,29 @@ export default function POS() {
           </div>
         </div>
 
-        {/* Offers panel */}
-        <div className="border-b border-surface-100">
+        {/* Product Spotlight + Offers */}
+        <div className="border-b border-surface-100 flex flex-col" style={{ maxHeight: '280px' }}>
           {/* Header */}
-          <div className="px-5 pt-3 pb-1.5 flex items-center justify-between">
+          <div className="px-5 pt-3 pb-1.5 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <svg className="w-3.5 h-3.5 text-primary-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
               </svg>
-              <span className="text-xs font-semibold text-surface-600 uppercase tracking-wide">Offers</span>
-              {selectedItem && (
-                <span className="text-xs text-primary-500 truncate">· {selectedItem.product_name}</span>
+              <span className="text-xs font-semibold text-surface-600 uppercase tracking-wide">Item Offers</span>
+              {spotlightItem && (
+                <span className="text-xs text-primary-500 truncate">· {spotlightItem.product_name}</span>
               )}
             </div>
             {pos.appliedPromotionNames.length > 0 && (
-              <button
-                onClick={() => pos.clearPromotions()}
-                className="text-xs text-red-400 hover:text-red-600 font-medium shrink-0 transition-colors"
-              >
+              <button onClick={() => pos.clearPromotions()} className="text-xs text-red-400 hover:text-red-600 font-medium shrink-0 transition-colors">
                 Clear
               </button>
             )}
           </div>
 
-          {/* Applied promotions as compact chips */}
+          {/* Applied promotion chips */}
           {pos.appliedPromotionNames.length > 0 && (
-            <div className="px-5 pb-1.5 flex flex-wrap gap-1">
+            <div className="px-5 pb-1.5 flex flex-wrap gap-1 shrink-0">
               {pos.appliedPromotionNames.map((name, i) => (
                 <span key={i} className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
                   <svg className="w-2.5 h-2.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -945,35 +952,80 @@ export default function POS() {
             </div>
           )}
 
-          {/* Available promos to apply */}
-          {visiblePromos.length > 0 ? (
-            <div className="px-3 pb-2 space-y-0.5 max-h-44 overflow-y-auto">
-              {visiblePromos.map((promo) => {
+          {/* Spotlight content */}
+          <div className="overflow-y-auto flex-1">
+            {spotlightItem ? (
+              <div className="px-3 pb-3 space-y-1.5">
+                {/* Product summary card */}
+                <div className="bg-primary-50 border border-primary-100 rounded-lg px-3 py-2 flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-surface-900 truncate">{spotlightItem.product_name}</p>
+                    <p className="text-xs text-surface-500 font-mono">{fmt(spotlightItem.unit_price)} × {spotlightItem.quantity}</p>
+                  </div>
+                  <p className="text-sm font-black text-primary-600 font-mono shrink-0 ml-2">
+                    {fmt(spotlightItem.unit_price * spotlightItem.quantity)}
+                  </p>
+                </div>
+
+                {/* Product / category promotions */}
+                {productPromotions.length > 0 ? productPromotions.map((promo) => {
+                  const isApplied = pos.appliedPromotionIds.includes(promo.id);
+                  const isApplying = applyingPromoId === promo.id;
+                  return (
+                    <div key={promo.id} className={`flex items-center gap-2 px-2 py-2 rounded-lg transition-colors ${isApplied ? 'bg-emerald-50' : 'hover:bg-surface-50'}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-surface-800 truncate leading-tight">{promo.name}</p>
+                        <p className="text-xs text-surface-400 leading-tight">{promoDesc(promo)}</p>
+                      </div>
+                      <button
+                        onClick={() => !isApplied && handleApplyPromotion(promo)}
+                        disabled={isApplied || isApplying}
+                        className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all min-w-[48px] flex items-center justify-center ${
+                          isApplied ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40'
+                        }`}
+                      >
+                        {isApplying ? '...' : isApplied ? '✓' : 'Apply'}
+                      </button>
+                    </div>
+                  );
+                }) : (
+                  <p className="text-xs text-surface-300 italic px-1">No specific offers for this item</p>
+                )}
+              </div>
+            ) : (
+              <p className="px-5 pb-3 text-xs text-surface-300 italic">
+                {pos.cart.length === 0 ? 'Scan or add an item to see offers' : 'Click a cart item to see its offers'}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Totals */}
+        <div className="flex-1 px-5 py-5 flex flex-col justify-end space-y-2.5">
+
+          {/* Bill-wide promotions */}
+          {billPromos.length > 0 && pos.cart.length > 0 && (
+            <div className="space-y-1.5 pb-1">
+              <p className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Bill Offers</p>
+              {billPromos.map((promo) => {
                 const isApplied = pos.appliedPromotionIds.includes(promo.id);
                 const isApplying = applyingPromoId === promo.id;
                 return (
-                  <div
-                    key={promo.id}
-                    className={`flex items-center gap-2 px-2 py-2 rounded-lg transition-colors ${
-                      isApplied ? 'bg-emerald-50' : 'hover:bg-surface-50'
-                    }`}
-                  >
+                  <div key={promo.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 border ${
+                    isApplied ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+                  }`}>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-surface-800 truncate leading-tight">{promo.name}</p>
-                      <p className="text-xs text-surface-400 leading-tight">{promoDesc(promo)}</p>
-                      {promo.min_purchase_amount ? (
-                        <p className="text-xs text-amber-500 leading-tight">
-                          Min. LKR {Number(promo.min_purchase_amount).toFixed(2)}
-                        </p>
-                      ) : null}
+                      <p className="text-xs font-semibold text-surface-800 truncate">{promo.name}</p>
+                      <p className="text-xs text-surface-400">{promoDesc(promo)}</p>
+                      {promo.min_purchase_amount && !isApplied && (
+                        <p className="text-xs text-amber-600">Min. {fmt(Number(promo.min_purchase_amount))}</p>
+                      )}
                     </div>
                     <button
                       onClick={() => !isApplied && handleApplyPromotion(promo)}
-                      disabled={isApplied || isApplying || pos.cart.length === 0}
+                      disabled={isApplied || isApplying}
                       className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all min-w-[48px] flex items-center justify-center ${
-                        isApplied
-                          ? 'bg-emerald-100 text-emerald-700 cursor-default'
-                          : 'bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40'
+                        isApplied ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40'
                       }`}
                     >
                       {isApplying ? '...' : isApplied ? '✓' : 'Apply'}
@@ -982,19 +1034,8 @@ export default function POS() {
                 );
               })}
             </div>
-          ) : (
-            <p className="px-5 pb-3 text-xs text-surface-300 italic">
-              {pos.cart.length === 0
-                ? 'Add items to see offers'
-                : selectedItem
-                ? 'No specific offers for this item'
-                : 'Click a cart item to see its offers'}
-            </p>
           )}
-        </div>
 
-        {/* Totals */}
-        <div className="flex-1 px-5 py-5 flex flex-col justify-end space-y-2.5">
           <div className="space-y-2.5 text-sm">
             <div className="flex justify-between text-surface-600">
               <span className="font-medium">{t.pos_subtotal}</span>
