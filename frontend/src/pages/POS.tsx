@@ -750,26 +750,26 @@ export default function POS() {
                     </button>
                   </div>
 
-                  {/* Row 2: qty + discount + unit price (bottom-right) */}
+                  {/* Row 2: qty · price · spacer · discount */}
                   <div className="flex items-center gap-2 pl-7">
                     {/* Qty controls */}
                     <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
                       <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
-                      <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900" min="0.001" step="1" />
+                      <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step="1" />
                       <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
                     </div>
 
-                    {/* Discount */}
-                    <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-20 text-right bg-white focus:outline-none focus:border-red-400 text-red-500" placeholder="Discount" min="0" step="0.01" />
+                    {/* Unit price — left of discount */}
+                    {canOverridePrice ? (
+                      <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0" step="0.01" placeholder="Price" />
+                    ) : (
+                      <p className="text-xs text-surface-400 font-mono">{fmt(item.unit_price)} × {item.quantity}</p>
+                    )}
 
-                    {/* Unit price — bottom right */}
-                    <div className="flex-1 flex justify-end items-center">
-                      {canOverridePrice ? (
-                        <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700" min="0" step="0.01" />
-                      ) : (
-                        <p className="text-xs text-surface-400 font-mono">{fmt(item.unit_price)} × {item.quantity}</p>
-                      )}
-                    </div>
+                    <div className="flex-1" />
+
+                    {/* Discount — right */}
+                    <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-red-400 text-red-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Discount" min="0" step="0.01" />
                   </div>
                 </div>
 
