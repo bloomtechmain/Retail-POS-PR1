@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>RetailPOS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      overflow: hidden;
+    }
+    .logo { font-size: 56px; margin-bottom: 16px; }
+    h1 { font-size: 28px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+    .subtitle { font-size: 13px; color: #666; margin-top: 6px; letter-spacing: 0.5px; text-transform: uppercase; }
+
+    .progress-wrap {
+      margin-top: 48px;
+      width: 200px;
+    }
+    .progress-bar {
+      height: 3px;
+      background: #1e1e1e;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #2563eb, #7c3aed);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .status {
+      font-size: 12px;
+      color: #555;
+      text-align: center;
+      margin-top: 12px;
+      height: 16px;
+      transition: opacity 0.2s;
+    }
+    .version {
+      position: absolute;
+      bottom: 20px;
+      font-size: 11px;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">🛒</div>
+  <h1>RetailPOS</h1>
+  <p class="subtitle">Point of Sale System</p>
+
+  <div class="progress-wrap">
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <p class="status" id="statusText">Starting…</p>
+  </div>
+
+  <p class="version" id="versionText">v1.0.0</p>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    ipcRenderer.on('splash-status', (_event, { message, progress }) => {
+      document.getElementById('statusText').textContent = message;
+      document.getElementById('progressFill').style.width = `${progress}%`;
+    });
+
+    ipcRenderer.on('splash-version', (_event, version) => {
+      document.getElementById('versionText').textContent = `v${version}`;
+    });
+  </script>
+</body>
+</html>

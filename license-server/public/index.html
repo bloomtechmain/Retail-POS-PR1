@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RetailPOS License Server</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    .license-key { font-family: 'Courier New', monospace; letter-spacing: 0.05em; }
+    .toast { animation: slideIn 0.2s ease; }
+    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .fade-in { animation: fadeIn 0.15s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+<!-- Toast container -->
+<div id="toasts" class="fixed bottom-4 right-4 flex flex-col gap-2 z-50 pointer-events-none"></div>
+
+<!-- Login Screen -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+    <div class="text-center mb-8">
+      <div class="text-4xl mb-3">🔑</div>
+      <h1 class="text-2xl font-bold text-white">RetailPOS</h1>
+      <p class="text-gray-400 text-sm mt-1">License Server Admin</p>
+    </div>
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Username</label>
+        <input id="loginUsername" type="text" autocomplete="username"
+          class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password"
+          class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+      </div>
+      <button type="submit"
+        class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded-lg transition-colors">
+        Sign In
+      </button>
+      <p id="loginError" class="text-red-400 text-sm text-center hidden"></p>
+    </form>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="mainApp" class="hidden min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="bg-gray-900 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🔑</span>
+      <div>
+        <h1 class="text-lg font-bold text-white leading-tight">RetailPOS License Server</h1>
+        <p class="text-xs text-gray-400">License Management</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="adminLabel" class="text-sm text-gray-400"></span>
+      <button onclick="logout()" class="text-sm text-gray-400 hover:text-red-400 transition-colors">Sign out</button>
+    </div>
+  </header>
+
+  <!-- Stats Bar -->
+  <div class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex gap-6 text-sm" id="statsBar">
+    <span class="text-gray-400">Loading stats...</span>
+  </div>
+
+  <!-- Content -->
+  <main class="flex-1 p-6 max-w-7xl mx-auto w-full">
+
+    <!-- Toolbar -->
+    <div class="flex flex-wrap gap-3 mb-6">
+      <input id="searchInput" type="text" placeholder="Search by key, name, or email…"
+        class="flex-1 min-w-48 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+        oninput="debounceSearch()" />
+
+      <button onclick="openGenerateModal()"
+        class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+        <span>+ Generate Keys</span>
+      </button>
+
+      <button onclick="loadLicenses()"
+        class="bg-gray-700 hover:bg-gray-600 text-white text-sm px-3 py-2 rounded-lg transition-colors">
+        ↻ Refresh
+      </button>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-800 text-gray-400 text-xs uppercase tracking-wider">
+            <th class="text-left px-4 py-3">License Key</th>
+            <th class="text-left px-4 py-3">Customer</th>
+            <th class="text-left px-4 py-3">Status</th>
+            <th class="text-left px-4 py-3">Machine</th>
+            <th class="text-left px-4 py-3">Activated</th>
+            <th class="text-left px-4 py-3">Created</th>
+            <th class="text-left px-4 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="licenseTableBody">
+          <tr><td colspan="7" class="text-center text-gray-500 py-12">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="flex justify-between items-center mt-4 text-sm text-gray-400" id="pagination">
+      <span id="pageInfo"></span>
+      <div class="flex gap-2">
+        <button id="prevBtn" onclick="changePage(-1)"
+          class="px-3 py-1 bg-gray-800 rounded-lg hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed">← Prev</button>
+        <button id="nextBtn" onclick="changePage(1)"
+          class="px-3 py-1 bg-gray-800 rounded-lg hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed">Next →</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Generate Keys Modal -->
+<div id="generateModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-40 fade-in" onclick="closeGenerateModal(event)">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md shadow-2xl" onclick="event.stopPropagation()">
+    <h2 class="text-lg font-bold text-white mb-4">Generate License Keys</h2>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Customer Name <span class="text-gray-600">(optional)</span></label>
+        <input id="genName" type="text" class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. Nimal's Shop" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Customer Email <span class="text-gray-600">(optional)</span></label>
+        <input id="genEmail" type="email" class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. nimal@example.com" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Number of Keys</label>
+        <input id="genCount" type="number" min="1" max="100" value="1"
+          class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Notes <span class="text-gray-600">(optional)</span></label>
+        <input id="genNotes" type="text" class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500" placeholder="e.g. Annual license" />
+      </div>
+    </div>
+
+    <!-- Generated Keys Result -->
+    <div id="genResult" class="hidden mt-4">
+      <label class="block text-sm text-gray-400 mb-2">Generated Keys — click to copy:</label>
+      <div id="genKeysList" class="bg-gray-800 rounded-lg p-3 space-y-1 max-h-48 overflow-y-auto"></div>
+    </div>
+
+    <div class="flex gap-3 mt-6">
+      <button onclick="closeGenerateModal()"
+        class="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-lg transition-colors">Cancel</button>
+      <button onclick="generateKeys()" id="genBtn"
+        class="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2 rounded-lg transition-colors">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div id="detailModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-40 fade-in" onclick="closeDetailModal(event)">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <h2 class="text-lg font-bold text-white mb-1">License Detail</h2>
+    <div id="detailContent"></div>
+    <button onclick="closeDetailModal()" class="mt-4 bg-gray-700 hover:bg-gray-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">Close</button>
+  </div>
+</div>
+
+<script>
+  let authToken = localStorage.getItem('ls_token') || '';
+  let currentPage = 1;
+  let totalPages = 1;
+  let searchTimer = null;
+
+  // ─── Auth ────────────────────────────────────────────────────────────────
+  if (authToken) showApp();
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginError');
+    errEl.classList.add('hidden');
+
+    try {
+      const res = await api('/api/admin/login', 'POST', { username, password }, true);
+      authToken = res.token;
+      localStorage.setItem('ls_token', authToken);
+      document.getElementById('adminLabel').textContent = res.username;
+      showApp();
+    } catch (err) {
+      errEl.textContent = err.message || 'Login failed';
+      errEl.classList.remove('hidden');
+    }
+  });
+
+  function logout() {
+    authToken = '';
+    localStorage.removeItem('ls_token');
+    document.getElementById('mainApp').classList.add('hidden');
+    document.getElementById('loginScreen').classList.remove('hidden');
+  }
+
+  function showApp() {
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('mainApp').classList.remove('hidden');
+    loadStats();
+    loadLicenses();
+  }
+
+  // ─── API helper ──────────────────────────────────────────────────────────
+  async function api(url, method = 'GET', body = null, skipAuth = false) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (!skipAuth && authToken) headers['Authorization'] = 'Bearer ' + authToken;
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 401) { logout(); return; }
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  // ─── Stats ───────────────────────────────────────────────────────────────
+  async function loadStats() {
+    try {
+      const s = await api('/api/admin/stats');
+      document.getElementById('statsBar').innerHTML = `
+        <span class="text-gray-300">Total: <strong class="text-white">${s.total}</strong></span>
+        <span class="text-green-400">Unused: <strong>${s.unused}</strong></span>
+        <span class="text-blue-400">Activated: <strong>${s.used}</strong></span>
+        <span class="text-red-400">Revoked: <strong>${s.revoked}</strong></span>
+      `;
+    } catch {}
+  }
+
+  // ─── Licenses Table ───────────────────────────────────────────────────────
+  async function loadLicenses(page = 1) {
+    currentPage = page;
+    const search = document.getElementById('searchInput').value.trim();
+    const params = new URLSearchParams({ page, ...(search && { search }) });
+    try {
+      const data = await api('/api/admin/licenses?' + params);
+      totalPages = Math.ceil(data.total / data.limit) || 1;
+      renderTable(data.licenses);
+      document.getElementById('pageInfo').textContent =
+        `Showing ${data.licenses.length} of ${data.total} licenses (page ${currentPage}/${totalPages})`;
+      document.getElementById('prevBtn').disabled = currentPage <= 1;
+      document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function renderTable(licenses) {
+    const tbody = document.getElementById('licenseTableBody');
+    if (!licenses.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-gray-500 py-12">No licenses found</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = licenses.map(l => `
+      <tr class="border-t border-gray-800 hover:bg-gray-800/50 transition-colors cursor-pointer" onclick="openDetail('${l.license_key}')">
+        <td class="px-4 py-3">
+          <span class="license-key text-xs text-yellow-300">${l.license_key}</span>
+          <button onclick="event.stopPropagation(); copyText('${l.license_key}')"
+            class="ml-2 text-gray-600 hover:text-blue-400 text-xs transition-colors">⎘</button>
+        </td>
+        <td class="px-4 py-3 text-gray-300">
+          <div>${esc(l.customer_name || '—')}</div>
+          <div class="text-xs text-gray-500">${esc(l.customer_email || '')}</div>
+        </td>
+        <td class="px-4 py-3">
+          ${!l.is_active
+            ? `<span class="bg-red-900/50 text-red-300 text-xs px-2 py-0.5 rounded-full">Revoked</span>`
+            : l.is_used
+            ? `<span class="bg-blue-900/50 text-blue-300 text-xs px-2 py-0.5 rounded-full">Activated</span>`
+            : `<span class="bg-green-900/50 text-green-300 text-xs px-2 py-0.5 rounded-full">Unused</span>`
+          }
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-400">${esc(l.machine_name || '—')}</td>
+        <td class="px-4 py-3 text-xs text-gray-400">${l.activated_at ? fmtDate(l.activated_at) : '—'}</td>
+        <td class="px-4 py-3 text-xs text-gray-400">${fmtDate(l.created_at)}</td>
+        <td class="px-4 py-3">
+          <div class="flex gap-2" onclick="event.stopPropagation()">
+            ${l.is_active
+              ? `<button onclick="toggleRevoke('${l.license_key}', false)"
+                  class="text-xs text-red-400 hover:text-red-300 transition-colors">Revoke</button>`
+              : `<button onclick="toggleRevoke('${l.license_key}', true)"
+                  class="text-xs text-green-400 hover:text-green-300 transition-colors">Restore</button>`
+            }
+            <button onclick="deleteLicense('${l.license_key}')"
+              class="text-xs text-gray-500 hover:text-red-400 transition-colors">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function changePage(delta) {
+    const newPage = currentPage + delta;
+    if (newPage >= 1 && newPage <= totalPages) loadLicenses(newPage);
+  }
+
+  function debounceSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => loadLicenses(1), 300);
+  }
+
+  // ─── Generate Keys ───────────────────────────────────────────────────────
+  function openGenerateModal() {
+    document.getElementById('genName').value = '';
+    document.getElementById('genEmail').value = '';
+    document.getElementById('genCount').value = '1';
+    document.getElementById('genNotes').value = '';
+    document.getElementById('genResult').classList.add('hidden');
+    document.getElementById('genKeysList').innerHTML = '';
+    document.getElementById('genBtn').textContent = 'Generate';
+    document.getElementById('generateModal').classList.remove('hidden');
+  }
+  function closeGenerateModal(e) {
+    if (!e || e.target === document.getElementById('generateModal')) {
+      document.getElementById('generateModal').classList.add('hidden');
+      loadLicenses(1);
+      loadStats();
+    }
+  }
+
+  async function generateKeys() {
+    const btn = document.getElementById('genBtn');
+    btn.textContent = 'Generating…';
+    btn.disabled = true;
+    try {
+      const data = await api('/api/admin/licenses/generate', 'POST', {
+        customer_name: document.getElementById('genName').value.trim() || undefined,
+        customer_email: document.getElementById('genEmail').value.trim() || undefined,
+        count: Number(document.getElementById('genCount').value) || 1,
+        notes: document.getElementById('genNotes').value.trim() || undefined,
+      });
+      const list = document.getElementById('genKeysList');
+      list.innerHTML = data.keys.map(k => `
+        <div onclick="copyText('${k}')" title="Click to copy"
+          class="license-key text-sm text-yellow-300 hover:text-yellow-100 cursor-pointer px-2 py-1 hover:bg-gray-700 rounded transition-colors">
+          ${k}
+        </div>
+      `).join('');
+      document.getElementById('genResult').classList.remove('hidden');
+      btn.textContent = 'Generate More';
+      btn.disabled = false;
+      toast(`${data.generated} key(s) generated`, 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.textContent = 'Generate';
+      btn.disabled = false;
+    }
+  }
+
+  // ─── Detail Modal ────────────────────────────────────────────────────────
+  async function openDetail(key) {
+    document.getElementById('detailContent').innerHTML = '<p class="text-gray-400 py-4">Loading…</p>';
+    document.getElementById('detailModal').classList.remove('hidden');
+    try {
+      const { license: l, logs } = await api('/api/admin/licenses/' + encodeURIComponent(key));
+      document.getElementById('detailContent').innerHTML = `
+        <div class="space-y-4 mt-4">
+          <div class="bg-gray-800 rounded-xl p-4 space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span class="text-gray-400">Key</span>
+              <span class="license-key text-yellow-300">${esc(l.license_key)}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Status</span>
+              <span>${!l.is_active ? '<span class="text-red-400">Revoked</span>' : l.is_used ? '<span class="text-blue-400">Activated</span>' : '<span class="text-green-400">Unused</span>'}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Customer</span>
+              <span class="text-white">${esc(l.customer_name || '—')}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Email</span>
+              <span class="text-white">${esc(l.customer_email || '—')}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Machine</span>
+              <span class="text-white">${esc(l.machine_name || '—')}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Fingerprint</span>
+              <span class="text-xs text-gray-400 font-mono truncate max-w-xs">${esc(l.machine_fingerprint || '—')}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Created</span>
+              <span class="text-gray-300">${fmtDate(l.created_at)}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">Activated</span>
+              <span class="text-gray-300">${l.activated_at ? fmtDate(l.activated_at) : '—'}</span>
+            </div>
+            ${l.notes ? `<div class="flex justify-between"><span class="text-gray-400">Notes</span><span class="text-gray-300">${esc(l.notes)}</span></div>` : ''}
+          </div>
+
+          <div>
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">Activation Log</h3>
+            ${logs.length === 0
+              ? '<p class="text-gray-500 text-sm">No activation attempts recorded.</p>'
+              : `<div class="bg-gray-800 rounded-xl overflow-hidden">
+                  <table class="w-full text-xs">
+                    <thead><tr class="bg-gray-700 text-gray-400">
+                      <th class="text-left px-3 py-2">Time</th>
+                      <th class="text-left px-3 py-2">IP</th>
+                      <th class="text-left px-3 py-2">Result</th>
+                      <th class="text-left px-3 py-2">Reason</th>
+                    </tr></thead>
+                    <tbody>
+                      ${logs.map(log => `
+                        <tr class="border-t border-gray-700">
+                          <td class="px-3 py-2 text-gray-400">${fmtDate(log.attempted_at)}</td>
+                          <td class="px-3 py-2 text-gray-400">${esc(log.ip_address || '—')}</td>
+                          <td class="px-3 py-2">${log.success ? '<span class="text-green-400">✓ OK</span>' : '<span class="text-red-400">✗ Fail</span>'}</td>
+                          <td class="px-3 py-2 text-gray-400">${esc(log.reason || '')}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>`
+            }
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      document.getElementById('detailContent').innerHTML = `<p class="text-red-400">${err.message}</p>`;
+    }
+  }
+  function closeDetailModal(e) {
+    if (!e || e.target === document.getElementById('detailModal')) {
+      document.getElementById('detailModal').classList.add('hidden');
+    }
+  }
+
+  // ─── Actions ─────────────────────────────────────────────────────────────
+  async function toggleRevoke(key, makeActive) {
+    const action = makeActive ? 'Restore' : 'Revoke';
+    if (!confirm(`${action} license ${key}?`)) return;
+    try {
+      await api('/api/admin/licenses/' + encodeURIComponent(key), 'PATCH', { is_active: makeActive });
+      toast(`License ${makeActive ? 'restored' : 'revoked'}`, 'success');
+      loadLicenses(currentPage);
+      loadStats();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function deleteLicense(key) {
+    if (!confirm(`Permanently delete license ${key}? This cannot be undone.`)) return;
+    try {
+      await api('/api/admin/licenses/' + encodeURIComponent(key), 'DELETE');
+      toast('License deleted', 'success');
+      loadLicenses(currentPage);
+      loadStats();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // ─── Utilities ────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function fmtDate(s) {
+    return new Date(s).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  }
+  function copyText(text) {
+    navigator.clipboard.writeText(text).then(() => toast('Copied!', 'success')).catch(() => {});
+  }
+  function toast(message, type = 'info') {
+    const colors = { success: 'bg-green-800 border-green-600 text-green-100', error: 'bg-red-900 border-red-600 text-red-100', info: 'bg-gray-800 border-gray-600 text-gray-100' };
+    const el = document.createElement('div');
+    el.className = `toast pointer-events-auto border rounded-lg px-4 py-2 text-sm shadow-xl ${colors[type] || colors.info}`;
+    el.textContent = message;
+    document.getElementById('toasts').appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+appId: com.retailpos.app
+productName: RetailPOS
+copyright: Copyright © 2025 RetailPOS
+
+# Directory config
+directories:
+  output: dist-electron
+  buildResources: build-assets
+
+# Files to include in the package
+files:
+  - electron/**
+  - backend/dist/**
+  - backend/package.json
+  - frontend/dist/**
+  - "!backend/src"
+  - "!frontend/src"
+  - "!**/*.ts"
+  - "!**/*.map"
+
+# Include backend node_modules alongside compiled output
+extraResources:
+  - from: backend/node_modules
+    to: app/backend/node_modules
+    filter:
+      - "**/*"
+      - "!**/*.ts"
+  - from: database/schema.sql
+    to: database/schema.sql
+
+# Disable asar so embedded-postgres can locate its binaries via import.meta.url
+# (ESM modules resolve paths relative to their own URL; asar breaks this)
+asar: false
+
+# Windows installer settings
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  requestedExecutionLevel: asInvoker
+
+# NSIS installer wizard settings
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: RetailPOS
+  runAfterFinish: true
+  perMachine: true
+  deleteAppDataOnUninstall: false

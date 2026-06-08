@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RetailPOS — Activation</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f0f;
+      color: #e5e5e5;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 40px;
+      width: 440px;
+      -webkit-app-region: no-drag;
+    }
+    .logo { text-align: center; margin-bottom: 32px; }
+    .logo-icon { font-size: 48px; }
+    .logo h1 { font-size: 22px; font-weight: 700; color: #fff; margin-top: 8px; }
+    .logo p { font-size: 13px; color: #888; margin-top: 4px; }
+
+    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 8px;
+      color: #fff;
+      padding: 10px 12px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: 'Courier New', monospace;
+    }
+    input:focus { border-color: #3b82f6; }
+    input.error { border-color: #ef4444; }
+    .field { margin-bottom: 16px; }
+
+    .server-toggle {
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      margin-bottom: 16px;
+      display: inline-block;
+    }
+    .server-toggle:hover { color: #888; }
+    .server-field { display: none; margin-bottom: 16px; }
+    .server-field.visible { display: block; }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      margin-top: 4px;
+    }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .error-msg {
+      background: #2a0a0a;
+      border: 1px solid #7f1d1d;
+      color: #fca5a5;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-top: 16px;
+      display: none;
+    }
+    .error-msg.visible { display: block; }
+
+    .success-msg {
+      background: #0a2a0a;
+      border: 1px solid #14532d;
+      color: #86efac;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-top: 16px;
+      text-align: center;
+      display: none;
+    }
+    .success-msg.visible { display: block; }
+
+    .hint {
+      font-size: 12px;
+      color: #555;
+      margin-top: 8px;
+      text-align: center;
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">🔑</div>
+      <h1>RetailPOS</h1>
+      <p>Product Activation</p>
+    </div>
+
+    <div class="field">
+      <label>License Key</label>
+      <input id="keyInput" type="text" placeholder="RPOS-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+        spellcheck="false" autocomplete="off" oninput="formatKey(this)" />
+    </div>
+
+    <span class="server-toggle" onclick="toggleServer()">▸ Custom server URL</span>
+    <div class="server-field" id="serverField">
+      <label>License Server URL</label>
+      <input id="serverInput" type="text" value="http://localhost:3001"
+        placeholder="https://your-license-server.com" />
+    </div>
+
+    <button class="btn btn-primary" id="activateBtn" onclick="activate()">Activate</button>
+
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="success-msg" id="successMsg">✓ Activation successful! Starting application…</div>
+
+    <p class="hint">Requires an internet connection to verify your license.</p>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function formatKey(input) {
+      // Auto-uppercase and insert dashes at right positions
+      let v = input.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      if (v.startsWith('RPOS')) v = v.slice(4);
+      const chunks = [];
+      for (let i = 0; i < v.length && i < 32; i += 8) {
+        chunks.push(v.slice(i, i + 8));
+      }
+      input.value = chunks.length ? 'RPOS-' + chunks.join('-') : v;
+    }
+
+    function toggleServer() {
+      const field = document.getElementById('serverField');
+      const toggle = document.querySelector('.server-toggle');
+      const visible = field.classList.toggle('visible');
+      toggle.textContent = visible ? '▾ Custom server URL' : '▸ Custom server URL';
+    }
+
+    async function activate() {
+      const key = document.getElementById('keyInput').value.trim();
+      const serverUrl = document.getElementById('serverInput').value.trim() || 'http://localhost:3001';
+      const btn = document.getElementById('activateBtn');
+      const errEl = document.getElementById('errorMsg');
+      const okEl = document.getElementById('successMsg');
+
+      errEl.classList.remove('visible');
+      okEl.classList.remove('visible');
+
+      if (!key || key.length < 10) {
+        errEl.textContent = 'Please enter your license key.';
+        errEl.classList.add('visible');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Verifying…';
+
+      const result = await ipcRenderer.invoke('activate-license', { key, serverUrl });
+
+      if (result.success) {
+        okEl.classList.add('visible');
+        btn.style.display = 'none';
+        setTimeout(() => ipcRenderer.send('activation-complete'), 1500);
+      } else {
+        errEl.textContent = result.error || 'Activation failed. Please check your key and try again.';
+        errEl.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Try Again';
+      }
+    }
+
+    // Allow pressing Enter in key field
+    document.getElementById('keyInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') activate();
+    });
+  </script>
+</body>
+</html>
