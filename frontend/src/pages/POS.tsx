@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
-import { Product, Promotion, Sale, SaleReturn } from '../types';
+import { Product, Promotion, Sale, SaleReturn, CartItem } from '../types';
 import api from '../services/api';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -10,6 +10,94 @@ import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 
 const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
+
+const promoDesc = (p: Promotion) => {
+  const val = p.discount_value;
+  if (p.type === 'percentage') {
+    const scope = p.applies_to === 'all' ? 'all items'
+      : p.applies_to === 'category' ? (p.category_name || 'category')
+      : (p.product_name || 'product');
+    return `${val}% off ${scope}`;
+  }
+  if (p.type === 'fixed_amount') {
+    const scope = p.applies_to === 'all' ? 'bill total'
+      : p.applies_to === 'category' ? (p.category_name || 'category')
+      : (p.product_name || 'product');
+    return `LKR ${val} off ${scope}`;
+  }
+  if (p.type === 'buy_x_get_y') return `Buy ${p.buy_quantity} Get ${p.get_quantity} Free`;
+  return p.description || p.type;
+};
+
+// ─── Item Offer Popup ─────────────────────────────────────────────────────────
+function ItemOfferPopup({
+  item, promotions, appliedIds, applyingId, onApply, onClose,
+}: {
+  item: CartItem | null;
+  promotions: Promotion[];
+  appliedIds: number[];
+  applyingId: number | null;
+  onApply: (promo: Promotion) => void;
+  onClose: () => void;
+}) {
+  if (!item) return null;
+  return (
+    <div className="fixed z-50 bottom-6 right-[19rem] xl:right-[21.5rem] w-72 xl:w-80 bg-white rounded-2xl shadow-2xl border border-surface-200 animate-in overflow-hidden">
+      {/* Header */}
+      <div className="bg-primary-600 px-4 py-3 flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-primary-200 font-medium">Added to cart</p>
+          <p className="text-sm font-bold text-white truncate">{item.product_name}</p>
+          <p className="text-xs text-primary-200 font-mono mt-0.5">
+            {fmt(item.unit_price)} × {item.quantity} = {fmt(item.unit_price * item.quantity)}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="shrink-0 p-1 rounded-lg hover:bg-primary-500 text-primary-200 hover:text-white transition-colors mt-0.5"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Promotions */}
+      <div className="px-3 py-3 space-y-1.5">
+        {promotions.length > 0 ? (
+          <>
+            <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide px-1">Available Offers</p>
+            {promotions.map((promo) => {
+              const isApplied = appliedIds.includes(promo.id);
+              const isApplying = applyingId === promo.id;
+              return (
+                <div key={promo.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors ${
+                  isApplied ? 'bg-emerald-50 border-emerald-200' : 'bg-surface-50 border-surface-200 hover:bg-surface-100'
+                }`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-surface-800 truncate">{promo.name}</p>
+                    <p className="text-xs text-surface-400">{promoDesc(promo)}</p>
+                  </div>
+                  <button
+                    onClick={() => !isApplied && onApply(promo)}
+                    disabled={isApplied || !!isApplying}
+                    className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-bold transition-all min-w-[52px] text-center ${
+                      isApplied ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40'
+                    }`}
+                  >
+                    {isApplying ? '…' : isApplied ? '✓ Done' : 'Apply'}
+                  </button>
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <p className="text-xs text-surface-400 italic text-center py-2">No offers available for this item</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Payment Modal ────────────────────────────────────────────────────────────
 function PaymentModal({
@@ -625,23 +713,6 @@ export default function POS() {
   };
 
   // ── Promotion helpers ──────────────────────────────────────────────────────
-  const promoDesc = (p: Promotion) => {
-    const val = p.discount_value;
-    if (p.type === 'percentage') {
-      const scope = p.applies_to === 'all' ? 'all items'
-        : p.applies_to === 'category' ? (p.category_name || 'category')
-        : (p.product_name || 'product');
-      return `${val}% off ${scope}`;
-    }
-    if (p.type === 'fixed_amount') {
-      const scope = p.applies_to === 'all' ? 'bill total'
-        : p.applies_to === 'category' ? (p.category_name || 'category')
-        : (p.product_name || 'product');
-      return `LKR ${val} off ${scope}`;
-    }
-    if (p.type === 'buy_x_get_y') return `Buy ${p.buy_quantity} Get ${p.get_quantity} Free`;
-    return p.description || p.type;
-  };
 
   const selectedItem = useMemo(
     () => pos.cart.find((i) => i.product_id === selectedItemId) ?? null,
@@ -1097,6 +1168,14 @@ export default function POS() {
       />
       <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
       <SaleReturnModal isOpen={isReturnOpen} onClose={() => setIsReturnOpen(false)} />
+      <ItemOfferPopup
+        item={spotlightItem}
+        promotions={productPromotions}
+        appliedIds={pos.appliedPromotionIds}
+        applyingId={applyingPromoId}
+        onApply={handleApplyPromotion}
+        onClose={() => setSpotlightId(null)}
+      />
     </div>
   );
 }
