@@ -12,7 +12,7 @@ import { useT } from '../i18n/translations';
 const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
 
 const promoDesc = (p: Promotion) => {
-  const val = p.discount_value;
+  const val = parseFloat(String(p.discount_value ?? 0));
   if (p.type === 'percentage') {
     const scope = p.applies_to === 'all' ? 'all items'
       : p.applies_to === 'category' ? (p.category_name || 'category')
@@ -731,34 +731,37 @@ export default function POS() {
             return (
               <div key={item.product_id} className="bg-primary-50 rounded-lg border border-primary-100 shadow-sm overflow-hidden flex">
 
-                {/* Left: ultra-compact single row */}
-                <div className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1">
+                {/* Left: item row */}
+                <div className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-1.5">
                   {/* # badge */}
-                  <span className="shrink-0 w-4 h-4 rounded-full bg-primary-200 text-primary-700 text-[10px] font-bold flex items-center justify-center select-none">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-primary-200 text-primary-700 text-[10px] font-bold flex items-center justify-center select-none">
                     {index + 1}
                   </span>
 
-                  {/* Name only */}
-                  <p className="flex-1 min-w-0 text-xs font-semibold text-surface-900 truncate">{item.product_name}</p>
+                  {/* Name + unit price info — fills the middle gap */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-surface-900 truncate leading-tight">{item.product_name}</p>
+                    {canOverridePrice ? (
+                      <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="text-[10px] font-mono text-primary-600 border-b border-primary-300 bg-transparent focus:outline-none w-20 leading-none" min="0" step="0.01" />
+                    ) : (
+                      <p className="text-[10px] text-surface-400 font-mono leading-none">{fmt(item.unit_price)} × {item.quantity}</p>
+                    )}
+                  </div>
 
                   {/* Qty controls */}
                   <div className="flex items-center border border-primary-200 rounded overflow-hidden h-6 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
-                    <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-6 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors text-sm font-bold select-none">−</button>
+                    <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-6 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none text-sm">−</button>
                     <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-8 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900" min="0.001" step="1" />
-                    <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-6 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors text-sm font-bold select-none">+</button>
+                    <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-6 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none text-sm">+</button>
                   </div>
 
-                  {/* Discount input */}
+                  {/* Discount */}
                   <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-6 px-1.5 text-xs font-mono border border-primary-200 rounded w-16 text-right bg-white focus:outline-none focus:border-red-400 text-red-500" placeholder="-disc" min="0" step="0.01" />
 
                   {/* Total */}
-                  <div className="text-right shrink-0 min-w-[72px]">
-                    {canOverridePrice ? (
-                      <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="w-20 text-right text-xs font-mono border border-primary-200 rounded px-1.5 bg-white focus:outline-none focus:border-primary-400 h-6" min="0" step="0.01" />
-                    ) : (
-                      <p className="text-[10px] text-surface-400 font-mono">{fmt(item.unit_price)} ×{item.quantity}</p>
-                    )}
-                    <p className="text-xs font-black text-surface-900 font-mono">{fmt((item.unit_price - item.item_discount) * item.quantity)}</p>
+                  <div className="text-right shrink-0 w-20">
+                    <p className="text-sm font-black text-surface-900 font-mono leading-tight">{fmt((item.unit_price - item.item_discount) * item.quantity)}</p>
+                    {item.item_discount > 0 && <p className="text-[10px] text-red-400 font-mono line-through leading-none">{fmt(item.unit_price * item.quantity)}</p>}
                   </div>
 
                   {/* Remove */}
@@ -769,21 +772,21 @@ export default function POS() {
                   </button>
                 </div>
 
-                {/* Right: offers — one line + big button */}
+                {/* Right: offers — description + full-height Apply */}
                 {itemPromos.length > 0 && (
-                  <div className="border-l border-amber-200 bg-amber-50 w-36 shrink-0 flex flex-col divide-y divide-amber-100">
+                  <div className="border-l border-amber-200 bg-amber-50 shrink-0 flex flex-col divide-y divide-amber-100">
                     {itemPromos.map((promo) => {
                       const isApplied = pos.appliedPromotionIds.includes(promo.id);
                       const isApplying = applyingPromoId === promo.id;
                       return (
-                        <div key={promo.id} className="flex items-center">
-                          <p className={`flex-1 px-2 text-xs font-medium truncate ${isApplied ? 'text-emerald-700' : 'text-amber-800'}`}>
+                        <div key={promo.id} className="flex items-stretch">
+                          <p className={`w-36 px-2.5 py-1 text-xs font-medium leading-tight flex items-center ${isApplied ? 'text-emerald-700' : 'text-amber-800'}`}>
                             {promoDesc(promo)}
                           </p>
                           <button
                             onClick={() => !isApplied && handleApplyPromotion(promo)}
                             disabled={isApplied || !!isApplying}
-                            className={`shrink-0 h-full px-3 text-xs font-bold transition-all ${isApplied ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700 disabled:opacity-40'}`}
+                            className={`w-16 text-sm font-bold transition-all border-l ${isApplied ? 'bg-emerald-100 text-emerald-700 border-emerald-200 cursor-default' : 'bg-amber-500 text-white border-amber-400 hover:bg-amber-600 active:bg-amber-700 disabled:opacity-40'}`}
                           >
                             {isApplying ? '…' : isApplied ? '✓' : 'Apply'}
                           </button>
