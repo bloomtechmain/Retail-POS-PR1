@@ -731,46 +731,41 @@ export default function POS() {
             return (
               <div key={item.product_id} className="bg-primary-50 rounded-lg border border-primary-100 shadow-sm overflow-hidden flex">
 
-                {/* Left: 2-row layout */}
-                <div className="flex-1 min-w-0 flex flex-col px-2.5 pt-1.5 pb-2 gap-1.5">
+                {/* Single row: # · name · qty · price · discount · total · remove */}
+                <div className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-2">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-primary-200 text-primary-700 text-[10px] font-bold flex items-center justify-center select-none">
+                    {index + 1}
+                  </span>
 
-                  {/* Row 1: # + name + total + remove */}
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 w-5 h-5 rounded-full bg-primary-200 text-primary-700 text-[10px] font-bold flex items-center justify-center select-none">
-                      {index + 1}
-                    </span>
-                    <p className="flex-1 min-w-0 text-xs font-semibold text-surface-900 truncate">{item.product_name}</p>
-                    <p className="text-sm font-black text-surface-900 font-mono shrink-0">
-                      {fmt((item.unit_price - item.item_discount) * item.quantity)}
-                    </p>
-                    <button onClick={() => pos.removeItem(item.product_id)} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+                  {/* Name — takes remaining space */}
+                  <p className="flex-1 min-w-0 text-xs font-semibold text-surface-900 truncate">{item.product_name}</p>
+
+                  {/* Qty controls */}
+                  <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
+                    <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
+                    <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step="1" />
+                    <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
                   </div>
 
-                  {/* Row 2: qty · price · spacer · discount */}
-                  <div className="flex items-center gap-2 pl-7">
-                    {/* Qty controls */}
-                    <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
-                      <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
-                      <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-xs font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step="1" />
-                      <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
-                    </div>
+                  {/* Unit price */}
+                  {canOverridePrice ? (
+                    <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-20 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Price" min="0" step="0.01" />
+                  ) : (
+                    <p className="text-xs text-surface-400 font-mono shrink-0">{fmt(item.unit_price)}</p>
+                  )}
 
-                    {/* Unit price — left of discount */}
-                    {canOverridePrice ? (
-                      <input type="number" value={item.unit_price} onChange={(e) => pos.updateUnitPrice(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-primary-400 text-primary-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0" step="0.01" placeholder="Price" />
-                    ) : (
-                      <p className="text-xs text-surface-400 font-mono">{fmt(item.unit_price)} × {item.quantity}</p>
-                    )}
+                  {/* Discount */}
+                  <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-20 text-right bg-white focus:outline-none focus:border-red-400 text-red-500 shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Disc" min="0" step="0.01" />
 
-                    <div className="flex-1" />
+                  {/* Total */}
+                  <p className="text-sm font-black text-surface-900 font-mono shrink-0 w-20 text-right">{fmt((item.unit_price - item.item_discount) * item.quantity)}</p>
 
-                    {/* Discount — right */}
-                    <input type="number" value={item.item_discount || ''} onChange={(e) => pos.updateItemDiscount(item.product_id, parseFloat(e.target.value) || 0)} className="h-7 px-2 text-xs font-mono border border-primary-200 rounded w-24 text-right bg-white focus:outline-none focus:border-red-400 text-red-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="Discount" min="0" step="0.01" />
-                  </div>
+                  {/* Remove */}
+                  <button onClick={() => pos.removeItem(item.product_id)} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
 
                 {/* Right: offer panel — entire section is the button */}
