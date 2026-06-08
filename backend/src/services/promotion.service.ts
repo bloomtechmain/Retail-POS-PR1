@@ -73,7 +73,7 @@ export const applyPromotions = async (
 ): Promise<{ items: CartItem[]; promotionsSummary: string[] }> => {
   let promos = await getActivePromotions();
   if (promotionId) {
-    promos = promos.filter((p) => p.id === promotionId);
+    promos = promos.filter((p) => Number(p.id) === Number(promotionId));
   }
   const applied: string[] = [];
   const updatedItems = items.map((item) => ({ ...item }));
@@ -87,70 +87,72 @@ export const applyPromotions = async (
       [productIds]
     );
     for (const row of catResult.rows) {
-      productCategoryMap[row.id] = row.category_id;
+      productCategoryMap[Number(row.id)] = row.category_id ? Number(row.category_id) : null;
     }
   }
 
-  const cartTotal = updatedItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+  const cartTotal = updatedItems.reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0);
 
   for (const promo of promos) {
-    // Check minimum purchase amount
-    if (promo.min_purchase_amount && cartTotal < promo.min_purchase_amount) continue;
+    // Cast pg NUMERIC columns to JS numbers
+    const discVal = Number(promo.discount_value || 0);
+    const minAmt  = Number(promo.min_purchase_amount || 0);
 
-    if (promo.type === 'percentage' && promo.discount_value) {
+    if (minAmt > 0 && cartTotal < minAmt) continue;
+
+    if (promo.type === 'percentage' && discVal) {
       if (promo.applies_to === 'all') {
         for (const item of updatedItems) {
-          const discount = round2((item.unit_price * promo.discount_value) / 100);
-          item.item_discount = round2((item.item_discount || 0) + discount);
+          const discount = round2((Number(item.unit_price) * discVal) / 100);
+          item.item_discount = round2((Number(item.item_discount) || 0) + discount);
           item.promotion_id = promo.id;
         }
-        applied.push(`${promo.name} (-${promo.discount_value}%)`);
+        applied.push(`${promo.name} (-${discVal}%)`);
       } else if (promo.applies_to === 'category' && promo.category_id) {
         const targets = updatedItems.filter(
-          (i) => productCategoryMap[i.product_id] === promo.category_id
+          (i) => productCategoryMap[Number(i.product_id)] === Number(promo.category_id)
         );
         if (targets.length > 0) {
           for (const target of targets) {
-            const discount = round2((target.unit_price * promo.discount_value) / 100);
-            target.item_discount = round2((target.item_discount || 0) + discount);
+            const discount = round2((Number(target.unit_price) * discVal) / 100);
+            target.item_discount = round2((Number(target.item_discount) || 0) + discount);
             target.promotion_id = promo.id;
           }
-          applied.push(`${promo.name} (-${promo.discount_value}% on ${promo.category_name})`);
+          applied.push(`${promo.name} (-${discVal}% on ${promo.category_name})`);
         }
       } else if (promo.applies_to === 'product' && promo.product_id) {
-        const target = updatedItems.find((i) => i.product_id === promo.product_id);
+        const target = updatedItems.find((i) => Number(i.product_id) === Number(promo.product_id));
         if (target) {
-          const discount = round2((target.unit_price * promo.discount_value) / 100);
-          target.item_discount = round2((target.item_discount || 0) + discount);
+          const discount = round2((Number(target.unit_price) * discVal) / 100);
+          target.item_discount = round2((Number(target.item_discount) || 0) + discount);
           target.promotion_id = promo.id;
           applied.push(`${promo.name} on ${target.product_name}`);
         }
       }
-    } else if (promo.type === 'fixed_amount' && promo.discount_value) {
+    } else if (promo.type === 'fixed_amount' && discVal) {
       if (promo.applies_to === 'all') {
-        // Apply the flat discount to the first item in the cart
         if (updatedItems.length > 0) {
-          updatedItems[0].item_discount = round2((updatedItems[0].item_discount || 0) + promo.discount_value);
+          updatedItems[0].item_discount = round2((Number(updatedItems[0].item_discount) || 0) + discVal);
           updatedItems[0].promotion_id = promo.id;
-          applied.push(`${promo.name}: -LKR ${promo.discount_value}`);
+          applied.push(`${promo.name}: -LKR ${discVal}`);
         }
       } else if (promo.applies_to === 'product' && promo.product_id) {
-        const target = updatedItems.find((i) => i.product_id === promo.product_id);
+        const target = updatedItems.find((i) => Number(i.product_id) === Number(promo.product_id));
         if (target) {
-          target.item_discount = round2((target.item_discount || 0) + promo.discount_value);
+          target.item_discount = round2((Number(target.item_discount) || 0) + discVal);
           target.promotion_id = promo.id;
-          applied.push(`${promo.name}: -LKR ${promo.discount_value}`);
+          applied.push(`${promo.name}: -LKR ${discVal}`);
         }
       } else if (promo.applies_to === 'category' && promo.category_id) {
         const targets = updatedItems.filter(
-          (i) => productCategoryMap[i.product_id] === promo.category_id
+          (i) => productCategoryMap[Number(i.product_id)] === Number(promo.category_id)
         );
         if (targets.length > 0) {
           for (const target of targets) {
-            target.item_discount = round2((target.item_discount || 0) + promo.discount_value);
+            target.item_discount = round2((Number(target.item_discount) || 0) + discVal);
             target.promotion_id = promo.id;
           }
-          applied.push(`${promo.name}: -LKR ${promo.discount_value} on ${promo.category_name}`);
+          applied.push(`${promo.name}: -LKR ${discVal} on ${promo.category_name}`);
         }
       }
     }
