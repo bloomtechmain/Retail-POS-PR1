@@ -4,11 +4,13 @@ import { useLanguageStore } from '../../store/languageStore';
 import { useT } from '../../i18n/translations';
 
 interface SidebarProps {
-  open: boolean;
-  onClose: () => void;
+  mobileOpen: boolean;
+  desktopOpen: boolean;
+  onMobileClose: () => void;
+  onDesktopToggle: () => void;
 }
 
-export function Sidebar({ open, onClose }: SidebarProps) {
+export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggle }: SidebarProps) {
   const { user, logout, hasPermission } = useAuthStore();
   const navigate = useNavigate();
   const { lang, toggleLang } = useLanguageStore();
@@ -73,7 +75,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     <aside
       className={`fixed left-0 top-0 h-full w-[220px] flex flex-col z-40 no-print
         transition-transform duration-300 ease-in-out
-        ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
+        ${desktopOpen ? 'md:translate-x-0' : 'md:-translate-x-full'}`}
       style={{
         background: 'linear-gradient(180deg, #0d1526 0%, #0f172a 40%, #0c1322 100%)',
         borderRight: '1px solid rgba(255,255,255,0.05)',
@@ -89,6 +92,16 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <div className="text-sm font-bold tracking-wide text-white">BloomPOS</div>
             <div className="text-[10px] uppercase tracking-widest" style={{ color: 'rgba(148,163,184,0.7)' }}>v1.0</div>
           </div>
+          {/* Desktop collapse button */}
+          <button
+            onClick={onDesktopToggle}
+            title="Collapse sidebar"
+            className="hidden md:flex shrink-0 p-1 rounded-md text-slate-500 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            </svg>
+          </button>
           {/* Language toggle */}
           <button
             onClick={toggleLang}
@@ -111,7 +124,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <NavLink
             key={item.path}
             to={item.path}
-            onClick={onClose}
+            onClick={onMobileClose}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                 isActive
