@@ -42,7 +42,8 @@ function ItemOfferPopup({
 }) {
   if (!item) return null;
   return (
-    <div className="fixed z-50 bottom-6 right-[19rem] xl:right-[21.5rem] w-72 xl:w-80 bg-white rounded-2xl shadow-2xl border border-surface-200 animate-in overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+    <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-surface-200 animate-in overflow-hidden mx-4" onClick={(e) => e.stopPropagation()}>
       {/* Header */}
       <div className="bg-primary-600 px-4 py-3 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -95,6 +96,7 @@ function ItemOfferPopup({
           <p className="text-xs text-surface-400 italic text-center py-2">No offers available for this item</p>
         )}
       </div>
+    </div>
     </div>
   );
 }
