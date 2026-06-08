@@ -32,6 +32,10 @@ extraResources:
 # (ESM modules resolve paths relative to their own URL; asar breaks this)
 asar: false
 
+# Post-pack hook: obfuscates compiled JS in the build output before installer creation.
+# Source files are never modified — only the packaged copy is protected.
+afterPack: scripts/after-pack.js
+
 # Windows installer settings
 win:
   icon: build-assets/icon.ico
