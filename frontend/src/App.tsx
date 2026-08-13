@@ -11,6 +11,7 @@ import Promotions from './pages/Promotions';
 import Reports from './pages/Reports';
 import Shifts from './pages/Shifts';
 import Users from './pages/Users';
+import Customers from './pages/Customers';
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/grn" element={<GRN />} />
           <Route path="/promotions" element={<Promotions />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/customers" element={<Customers />} />
         </Route>
 
         {/* Protected — Admin only */}

@@ -8,7 +8,7 @@ const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
 const today = new Date().toISOString().slice(0, 10);
 const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
 
-type ReportTab = 'sales' | 'products' | 'inventory' | 'cashiers';
+type ReportTab = 'sales' | 'products' | 'inventory' | 'cashiers' | 'credit';
 
 export default function Reports() {
   const t = useT();
@@ -20,6 +20,7 @@ export default function Reports() {
   const [productsData, setProductsData] = useState<unknown[]>([]);
   const [inventoryData, setInventoryData] = useState<unknown[]>([]);
   const [cashiersData, setCashiersData] = useState<unknown[]>([]);
+  const [creditData, setCreditData] = useState<{ customers: unknown[]; summary: Record<string, number> } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,6 +37,9 @@ export default function Reports() {
       } else if (tab === 'cashiers') {
         const r = await api.get(`/reports/cashiers?date_from=${dateFrom}&date_to=${dateTo}`);
         setCashiersData(r.data.data);
+      } else if (tab === 'credit') {
+        const r = await api.get('/reports/credit');
+        setCreditData(r.data.data);
       }
     } finally { setLoading(false); }
   }, [tab, dateFrom, dateTo]);
@@ -47,6 +51,7 @@ export default function Reports() {
     { key: 'products', label: t.reports_tab_products },
     { key: 'inventory', label: t.reports_tab_inventory },
     { key: 'cashiers', label: t.reports_tab_cashiers },
+    { key: 'credit', label: t.reports_tab_credit },
   ];
 
   return (
@@ -70,8 +75,8 @@ export default function Reports() {
         ))}
       </div>
 
-      {/* Date Range (not for inventory) */}
-      {tab !== 'inventory' && (
+      {/* Date Range (not for inventory / credit) */}
+      {tab !== 'inventory' && tab !== 'credit' && (
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div>
             <label className="label">{t.reports_from}</label>
@@ -192,6 +197,56 @@ export default function Reports() {
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* CREDIT CUSTOMERS */}
+          {tab === 'credit' && creditData && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                {[
+                  ['Total Outstanding', fmt(Number(creditData.summary?.total_outstanding || 0)), 'text-orange-600'],
+                  ['Customers With Balance', String(creditData.summary?.customers_with_balance || 0), ''],
+                  ['Total Credit Customers', String(creditData.summary?.total_customers || 0), ''],
+                ].map(([label, value, color], i) => (
+                  <div key={i} className="stat-card">
+                    <p className="stat-label">{label}</p>
+                    <p className={`stat-value ${color}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="card">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Phone</th>
+                      <th className="text-right">Credit Limit</th>
+                      <th className="text-right">Outstanding Balance</th>
+                      <th className="text-right">Lifetime Credit Sales</th>
+                      <th>Last Sale</th>
+                      <th>Last Payment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(creditData.customers as Array<Record<string, unknown>>).length === 0 ? (
+                      <tr><td colSpan={7} className="text-center py-8 text-surface-400">{t.reports_no_data}</td></tr>
+                    ) : (creditData.customers as Array<Record<string, unknown>>).map((c, i) => (
+                      <tr key={i}>
+                        <td className="font-medium">{String(c.name)}</td>
+                        <td className="text-sm">{c.phone ? String(c.phone) : '—'}</td>
+                        <td className="text-right font-mono">{c.credit_limit == null ? 'Unlimited' : fmt(Number(c.credit_limit))}</td>
+                        <td className={`text-right font-mono font-semibold ${Number(c.current_balance) > 0 ? 'text-orange-600' : 'text-surface-500'}`}>
+                          {fmt(Number(c.current_balance))}
+                        </td>
+                        <td className="text-right font-mono text-surface-500">{fmt(Number(c.lifetime_credit_sales))}</td>
+                        <td className="text-sm">{c.last_sale_date ? new Date(String(c.last_sale_date)).toLocaleDateString() : t.never}</td>
+                        <td className="text-sm">{c.last_payment_date ? new Date(String(c.last_payment_date)).toLocaleDateString() : t.never}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </>
       )}

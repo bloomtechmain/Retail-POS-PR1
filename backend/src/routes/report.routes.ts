@@ -11,5 +11,6 @@ router.get('/sales', reportController.salesReport);
 router.get('/product-sales', reportController.productSalesReport);
 router.get('/inventory', reportController.inventoryReport);
 router.get('/cashiers', reportController.cashierReport);
+router.get('/credit', reportController.creditReport);
 
 export default router;

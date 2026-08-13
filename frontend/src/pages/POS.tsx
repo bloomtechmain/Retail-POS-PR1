@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
-import { Product, Promotion, Sale, SaleReturn } from '../types';
+import { Product, Promotion, Sale, SaleReturn, Customer } from '../types';
 import api from '../services/api';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -29,37 +29,164 @@ const promoDesc = (p: Promotion) => {
   return p.description || p.type;
 };
 
+// ─── Customer Picker (for Credit sales) ────────────────────────────────────────
+function CustomerPicker({ selected, onSelect, total }: {
+  selected: Customer | null; onSelect: (c: Customer | null) => void; total: number;
+}) {
+  const toast = useToastStore();
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<Customer[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [creating, setCreating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounce = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 60);
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(debounce.current);
+    if (!q.trim()) { setResults([]); setOpen(false); return; }
+    debounce.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await api.get(`/customers?search=${encodeURIComponent(q)}&limit=8`);
+        setResults(r.data.data);
+        setOpen(true);
+      } finally { setLoading(false); }
+    }, 200);
+    return () => clearTimeout(debounce.current);
+  }, [q]);
+
+  const pick = (c: Customer) => {
+    onSelect(c);
+    setQ('');
+    setResults([]);
+    setOpen(false);
+  };
+
+  const handleCreate = async () => {
+    if (!newName.trim()) { toast.error('Enter a customer name'); return; }
+    setCreating(true);
+    try {
+      const r = await api.post('/customers', { name: newName.trim(), phone: newPhone || undefined });
+      onSelect(r.data.data);
+      setShowAdd(false);
+      setNewName(''); setNewPhone('');
+      toast.success('Customer added');
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Failed to add customer');
+    } finally { setCreating(false); }
+  };
+
+  if (selected) {
+    const available = selected.credit_limit == null ? null : Number(selected.credit_limit) - Number(selected.current_balance);
+    const exceeds = available !== null && total > available;
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-orange-900 truncate">{selected.name}</p>
+            <p className="text-xs text-orange-600">
+              Balance: {fmt(Number(selected.current_balance))}
+              {available !== null && ` · Available: ${fmt(available)}`}
+            </p>
+          </div>
+          <button onClick={() => onSelect(null)} className="text-orange-400 hover:text-orange-700 shrink-0 ml-2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        {exceeds && (
+          <p className="text-xs text-red-600 font-medium">
+            This sale ({fmt(total)}) exceeds the customer's available credit.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type="text"
+        className="input-lg border-orange-300 focus:border-orange-500 focus:ring-orange-500"
+        placeholder="Search customer by name or phone…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+      />
+      {loading && <div className="absolute right-3 top-4"><LoadingSpinner size="sm" /></div>}
+
+      {open && results.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-surface-200 shadow-xl z-50 overflow-hidden max-h-56 overflow-y-auto">
+          {results.map((c) => (
+            <button key={c.id} onMouseDown={() => pick(c)}
+              className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-surface-50 border-b border-surface-100 last:border-0">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-surface-900 truncate">{c.name}</p>
+                <p className="text-xs text-surface-400">{c.phone || '—'}</p>
+              </div>
+              <p className={`text-xs font-mono shrink-0 ${Number(c.current_balance) > 0 ? 'text-orange-600' : 'text-surface-400'}`}>
+                {fmt(Number(c.current_balance))}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!showAdd ? (
+        <button onClick={() => setShowAdd(true)} className="mt-2 text-sm text-orange-600 hover:text-orange-800 font-medium">
+          + Add new customer
+        </button>
+      ) : (
+        <div className="mt-3 space-y-2 bg-surface-50 rounded-lg p-3 border border-surface-200">
+          <input className="input py-2 text-sm" placeholder="Customer name" value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus />
+          <input className="input py-2 text-sm" placeholder="Phone (optional)" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} />
+          <div className="flex gap-2">
+            <button onClick={handleCreate} disabled={creating} className="btn-primary btn-sm flex-1">
+              {creating ? 'Adding…' : 'Add & Select'}
+            </button>
+            <button onClick={() => setShowAdd(false)} className="btn-secondary btn-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Payment Modal ────────────────────────────────────────────────────────────
 function PaymentModal({
   isOpen, onClose, total, onConfirm, isProcessing,
 }: {
   isOpen: boolean; onClose: () => void; total: number;
-  onConfirm: (method: 'cash' | 'card' | 'mixed' | 'credit', cashTendered: number, cardAmount: number, customerName?: string) => void;
+  onConfirm: (method: 'cash' | 'card' | 'mixed' | 'credit', cashTendered: number, cardAmount: number, customer?: Customer) => void;
   isProcessing: boolean;
 }) {
   const t = useT();
   const [method, setMethod] = useState<'cash' | 'card' | 'mixed' | 'credit'>('cash');
   const [cashInput, setCashInput] = useState('');
   const [cardInput, setCardInput] = useState('');
-  const [creditName, setCreditName] = useState('');
+  const [creditCustomer, setCreditCustomer] = useState<Customer | null>(null);
   const cashRef = useRef<HTMLInputElement>(null);
-  const creditNameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setCashInput(total.toFixed(2));
       setCardInput('');
-      setCreditName('');
+      setCreditCustomer(null);
       setMethod('cash');
       setTimeout(() => cashRef.current?.select(), 60);
     }
   }, [isOpen, total]);
-
-  useEffect(() => {
-    if (method === 'credit') {
-      setTimeout(() => creditNameRef.current?.focus(), 60);
-    }
-  }, [method]);
 
   const cashTendered = parseFloat(cashInput) || 0;
   const cardAmount   = parseFloat(cardInput)  || 0;
@@ -70,7 +197,7 @@ function PaymentModal({
     method === 'cash'   ? cashTendered >= total :
     method === 'card'   ? true :
     method === 'mixed'  ? cashTendered + cardAmount >= total :
-    creditName.trim().length > 0;
+    !!creditCustomer;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t.pos_payment_title} size="sm">
@@ -117,16 +244,8 @@ function PaymentModal({
         {method === 'credit' && (
           <div className="space-y-3">
             <div>
-              <label className="label text-orange-700">Customer Name <span className="text-red-500">*</span></label>
-              <input
-                ref={creditNameRef}
-                type="text"
-                className="input-lg border-orange-300 focus:border-orange-500 focus:ring-orange-500"
-                placeholder="Enter customer name"
-                value={creditName}
-                onChange={(e) => setCreditName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && isValid) onConfirm(method, 0, 0, creditName.trim()); }}
-              />
+              <label className="label text-orange-700">Customer <span className="text-red-500">*</span></label>
+              <CustomerPicker selected={creditCustomer} onSelect={setCreditCustomer} total={total} />
             </div>
             <div className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 text-sm text-orange-700">
               <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -145,7 +264,7 @@ function PaymentModal({
         )}
 
         <button
-          onClick={() => onConfirm(method, cashTendered, cardAmount, method === 'credit' ? creditName.trim() : undefined)}
+          onClick={() => onConfirm(method, cashTendered, cardAmount, method === 'credit' ? creditCustomer! : undefined)}
           disabled={!isValid || isProcessing}
           className={`btn-lg w-full text-base ${method === 'credit' ? 'bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-40' : 'btn-success'}`}
         >
@@ -579,7 +698,7 @@ export default function POS() {
     return () => window.removeEventListener('keydown', h);
   }, [pos]);
 
-  const handlePayment = async (method: 'cash' | 'card' | 'mixed' | 'credit', cashTendered: number, cardAmount: number, customerName?: string) => {
+  const handlePayment = async (method: 'cash' | 'card' | 'mixed' | 'credit', cashTendered: number, cardAmount: number, customer?: Customer) => {
     setIsProcessing(true);
     try {
       const r = await api.post('/sales', {
@@ -588,7 +707,8 @@ export default function POS() {
         payment_method: method,
         cash_tendered: cashTendered,
         card_amount: cardAmount,
-        customer_name: customerName || pos.customerName || undefined,
+        customer_id: customer?.id,
+        customer_name: customer?.name || pos.customerName || undefined,
         notes: pos.notes || undefined,
       });
       const detail = await api.get(`/sales/${r.data.data.id}`);

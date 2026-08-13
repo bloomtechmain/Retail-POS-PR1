@@ -8,6 +8,7 @@ import promotionRoutes from './promotion.routes';
 import reportRoutes from './report.routes';
 import shiftRoutes from './shift.routes';
 import userRoutes from './user.routes';
+import customerRoutes from './customer.routes';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use('/promotions', promotionRoutes);
 router.use('/reports', reportRoutes);
 router.use('/shifts', shiftRoutes);
 router.use('/users', userRoutes);
+router.use('/customers', customerRoutes);
 
 export default router;

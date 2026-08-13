@@ -71,3 +71,10 @@ SELECT
   c.id, 'piece', 35, 8
 FROM categories c WHERE c.name = 'Health & Beauty'
 ON CONFLICT (sku) DO NOTHING;
+
+-- Sample Credit Customers
+INSERT INTO customers (name, phone, email, address, credit_limit, notes) VALUES
+  ('Green Valley Restaurant', '+1-555-0201', 'orders@greenvalley.com', '12 Market St', 500.00, 'Weekly restocking account'),
+  ('Sunrise Grocers', '+1-555-0202', 'sunrise@grocers.com', '48 Baker Ave', 1000.00, NULL),
+  ('Walk-in Regular — Kasun P.', '+1-555-0203', NULL, NULL, 100.00, 'Pays monthly')
+ON CONFLICT DO NOTHING;

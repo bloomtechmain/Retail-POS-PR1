@@ -7,6 +7,7 @@ interface POSStore {
   cart: CartItem[];
   billDiscount: number;
   customerName: string;
+  customerId: number | null;
   notes: string;
   appliedPromotionNames: string[];
   appliedPromotionIds: number[];
@@ -26,6 +27,7 @@ interface POSStore {
   updateUnitPrice: (productId: number, price: number) => void;
   setBillDiscount: (discount: number) => void;
   setCustomerName: (name: string) => void;
+  setCustomerId: (id: number | null) => void;
   setNotes: (notes: string) => void;
   clearCart: () => void;
   applyCartPromotions: (promotedItems: CartItem[], promoName: string, promoId: number) => void;
@@ -36,6 +38,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   cart: [],
   billDiscount: 0,
   customerName: '',
+  customerId: null,
   notes: '',
   appliedPromotionNames: [],
   appliedPromotionIds: [],
@@ -155,6 +158,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   },
 
   setCustomerName: (name) => set({ customerName: name }),
+  setCustomerId: (id) => set({ customerId: id }),
   setNotes: (notes) => set({ notes }),
 
   clearCart: () => {
@@ -162,6 +166,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       cart: [],
       billDiscount: 0,
       customerName: '',
+      customerId: null,
       notes: '',
       appliedPromotionNames: [],
       appliedPromotionIds: [],

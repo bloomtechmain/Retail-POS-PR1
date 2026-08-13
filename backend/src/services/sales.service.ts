@@ -16,9 +16,19 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
     }
     const shiftId = shiftResult.rows[0].id;
 
-    // Credit sales require a customer name
-    if (data.payment_method === 'credit' && !data.customer_name?.trim()) {
-      throw createError('Customer name is required for credit (pay later) sales', 400);
+    // Credit sales require a registered customer
+    let customer: any = null;
+    if (data.payment_method === 'credit') {
+      if (!data.customer_id) {
+        throw createError('Select a customer for credit (pay later) sales', 400);
+      }
+      const customerResult = await client.query(
+        'SELECT * FROM customers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+        [data.customer_id]
+      );
+      if (customerResult.rows.length === 0) throw createError('Customer not found', 404);
+      customer = customerResult.rows[0];
+      if (!customer.is_active) throw createError('This customer account is inactive', 400);
     }
 
     // Calculate totals
@@ -71,6 +81,19 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
         : 0
     );
 
+    // Enforce credit limit (null limit = unlimited)
+    if (customer && customer.credit_limit !== null) {
+      const newBalance = round2(parseFloat(customer.current_balance) + totalAmount);
+      const creditLimit = parseFloat(customer.credit_limit);
+      if (newBalance > creditLimit) {
+        const available = round2(creditLimit - parseFloat(customer.current_balance));
+        throw createError(
+          `Credit limit exceeded for ${customer.name}. Available credit: ${available.toFixed(2)}`,
+          400
+        );
+      }
+    }
+
     const saleNumber = generateSaleNumber();
 
     // Insert sale
@@ -79,18 +102,26 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
          sale_number, shift_id, cashier_id, subtotal, item_discount, bill_discount,
          discount_amount, tax_amount, total_amount, cost_total, profit,
          payment_method, cash_tendered, card_amount, change_amount,
-         status, customer_name, notes
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'completed',$16,$17)
+         status, customer_name, customer_id, notes
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'completed',$16,$17,$18)
        RETURNING *`,
       [
         saleNumber, shiftId, cashierId, subtotal, itemDiscountTotal, billDiscountAmount,
         discountTotal, taxTotal, totalAmount, costTotal, profit,
         data.payment_method, data.cash_tendered || 0, data.card_amount || 0, changeAmount,
-        data.customer_name || null, data.notes || null,
+        customer ? customer.name : (data.customer_name || null), customer ? customer.id : null, data.notes || null,
       ]
     );
 
     const sale = saleResult.rows[0];
+
+    // Credit sale: increase customer's outstanding balance
+    if (customer) {
+      await client.query(
+        'UPDATE customers SET current_balance = current_balance + $1, updated_at = NOW() WHERE id = $2',
+        [totalAmount, customer.id]
+      );
+    }
 
     // Insert sale items and update stock
     for (const item of processedItems) {
@@ -278,6 +309,14 @@ export const voidSale = async (id: number, reason: string, userId: number): Prom
       [sale.total_amount, sale.shift_id]
     );
 
+    // Reverse the customer's outstanding balance for a voided credit sale
+    if (sale.payment_method === 'credit' && sale.customer_id) {
+      await client.query(
+        'UPDATE customers SET current_balance = current_balance - $1, updated_at = NOW() WHERE id = $2',
+        [sale.total_amount, sale.customer_id]
+      );
+    }
+
     const updated = await client.query(
       `UPDATE sales SET status = 'voided', void_reason = $1, updated_at = NOW()
        WHERE id = $2 RETURNING *`,
@@ -429,6 +468,15 @@ export const returnSaleItems = async (
       'UPDATE shifts SET total_sales = total_sales - $1 WHERE id = $2',
       [totalRefundAmount, shiftId]
     );
+
+    // Returning items from a credit sale reduces what the customer owes
+    const originalSale = saleResult.rows[0];
+    if (originalSale.payment_method === 'credit' && originalSale.customer_id) {
+      await client.query(
+        'UPDATE customers SET current_balance = current_balance - $1, updated_at = NOW() WHERE id = $2',
+        [totalRefundAmount, originalSale.customer_id]
+      );
+    }
 
     return { ...returnRecord, items: processedItems };
   });

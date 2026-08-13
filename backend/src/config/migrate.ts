@@ -72,6 +72,36 @@ export const runMigrations = async (): Promise<void> => {
         subtotal DECIMAL(12,2) NOT NULL
       )`,
       `CREATE INDEX IF NOT EXISTS idx_grn_returns_grn ON grn_returns(grn_id)`,
+      `CREATE TABLE IF NOT EXISTS customers (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        email VARCHAR(255),
+        address TEXT,
+        credit_limit DECIMAL(12,2),
+        current_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+        notes TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        deleted_at TIMESTAMP
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)`,
+      `CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone) WHERE phone IS NOT NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(current_balance)`,
+      `CREATE TABLE IF NOT EXISTS customer_payments (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL REFERENCES customers(id),
+        amount DECIMAL(12,2) NOT NULL,
+        payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+        notes TEXT,
+        received_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(created_at)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id)`,
+      `CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL`,
     ];
     for (const sql of alterations) {
       await query(sql, []);

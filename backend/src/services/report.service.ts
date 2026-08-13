@@ -150,6 +150,35 @@ export const getInventoryReport = async () => {
   return result.rows;
 };
 
+export const getCreditReport = async () => {
+  const customersResult = await query(
+    `SELECT
+       c.id, c.name, c.phone, c.email, c.credit_limit, c.current_balance, c.is_active,
+       COUNT(s.id) FILTER (WHERE s.payment_method = 'credit' AND s.status IN ('completed','refunded')) as credit_sales_count,
+       COALESCE(SUM(s.total_amount) FILTER (WHERE s.payment_method = 'credit' AND s.status IN ('completed','refunded')), 0) as lifetime_credit_sales,
+       MAX(s.created_at) FILTER (WHERE s.payment_method = 'credit' AND s.status IN ('completed','refunded')) as last_sale_date,
+       MAX(cp.created_at) as last_payment_date
+     FROM customers c
+     LEFT JOIN sales s ON s.customer_id = c.id
+     LEFT JOIN customer_payments cp ON cp.customer_id = c.id
+     WHERE c.deleted_at IS NULL
+     GROUP BY c.id
+     ORDER BY c.current_balance DESC, c.name ASC`,
+    []
+  );
+
+  const summaryResult = await query(
+    `SELECT
+       COALESCE(SUM(current_balance), 0) as total_outstanding,
+       COUNT(*) FILTER (WHERE current_balance > 0) as customers_with_balance,
+       COUNT(*) as total_customers
+     FROM customers WHERE deleted_at IS NULL`,
+    []
+  );
+
+  return { customers: customersResult.rows, summary: summaryResult.rows[0] };
+};
+
 export const getCashierReport = async (params: { date_from: string; date_to: string }) => {
   const result = await query(
     `SELECT

@@ -171,6 +171,32 @@ export interface Promotion {
   updated_at: Date;
 }
 
+export interface Customer {
+  id: number;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  credit_limit?: number | null;
+  current_balance: number;
+  notes?: string;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+  deleted_at?: Date;
+}
+
+export interface CustomerPayment {
+  id: number;
+  customer_id: number;
+  amount: number;
+  payment_method: 'cash' | 'card';
+  notes?: string;
+  received_by?: number;
+  received_by_name?: string;
+  created_at: Date;
+}
+
 export interface Sale {
   id: number;
   sale_number: string;
@@ -193,6 +219,7 @@ export interface Sale {
   void_reason?: string;
   notes?: string;
   customer_name?: string;
+  customer_id?: number;
   created_at: Date;
   updated_at: Date;
   items?: SaleItem[];
@@ -271,6 +298,7 @@ export interface CreateSalePayload {
   cash_tendered: number;
   card_amount: number;
   customer_name?: string;
+  customer_id?: number;
   notes?: string;
 }
 

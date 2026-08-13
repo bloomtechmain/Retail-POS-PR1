@@ -11,6 +11,7 @@ const en = {
   nav_reports: 'Reports',
   nav_shifts: 'Shifts',
   nav_users: 'Users',
+  nav_customers: 'Customers',
 
   // ── Common ───────────────────────────────────────────────────────────────────
   save: 'Save',
@@ -248,6 +249,7 @@ const en = {
   reports_tab_products: 'Product Sales',
   reports_tab_inventory: 'Inventory',
   reports_tab_cashiers: 'Cashiers',
+  reports_tab_credit: 'Credit Customers',
   reports_from: 'From',
   reports_to: 'To',
   reports_load: 'Load Report',
@@ -350,6 +352,7 @@ const si: typeof en = {
   nav_reports: 'වාර්තා',
   nav_shifts: 'ශිෆ්ට්',
   nav_users: 'පරිශීලකයින්',
+  nav_customers: 'ගනුදෙනුකරුවන්',
 
   // Common
   save: 'සුරකින්න',
@@ -587,6 +590,7 @@ const si: typeof en = {
   reports_tab_products: 'භාණ්ඩ විකිණීම',
   reports_tab_inventory: 'ගබඩා',
   reports_tab_cashiers: 'අයකැමිවරු',
+  reports_tab_credit: 'ණය ගනුදෙනුකරුවන්',
   reports_from: 'සිට',
   reports_to: 'දක්වා',
   reports_load: 'වාර්තාව පූරණය',

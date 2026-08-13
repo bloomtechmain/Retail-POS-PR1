@@ -82,8 +82,41 @@ export interface Sale {
   void_reason?: string;
   notes?: string;
   customer_name?: string;
+  customer_id?: number;
   created_at: string;
   items?: SaleItem[];
+}
+
+export interface Customer {
+  id: number;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  credit_limit?: number | null;
+  current_balance: number;
+  notes?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CustomerPayment {
+  id: number;
+  customer_id: number;
+  amount: number;
+  payment_method: 'cash' | 'card';
+  notes?: string;
+  received_by_name?: string;
+  created_at: string;
+}
+
+export interface CustomerStatementEntry {
+  type: 'sale' | 'payment';
+  id: number;
+  reference: string;
+  amount: number;
+  balance: number;
+  created_at: string;
 }
 
 export interface SaleItem {

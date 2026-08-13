@@ -219,6 +219,45 @@ CREATE TABLE IF NOT EXISTS promotions (
 CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions(is_active, start_date, end_date);
 
 -- ============================================================
+-- CUSTOMERS (CREDIT ACCOUNTS)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS customers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  phone VARCHAR(50),
+  email VARCHAR(255),
+  address TEXT,
+  credit_limit DECIMAL(12,2),
+  -- NULL = unlimited credit
+  current_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
+  -- Amount currently owed by the customer (increases on credit sales, decreases on payments)
+  notes TEXT,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone) WHERE phone IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(current_balance);
+
+CREATE TABLE IF NOT EXISTS customer_payments (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  amount DECIMAL(12,2) NOT NULL,
+  payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
+  -- Methods: 'cash', 'card'
+  notes TEXT,
+  received_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(created_at);
+
+-- ============================================================
 -- SALES
 -- ============================================================
 
@@ -236,7 +275,7 @@ CREATE TABLE IF NOT EXISTS sales (
   cost_total DECIMAL(12,2) DEFAULT 0,
   profit DECIMAL(12,2) DEFAULT 0,
   payment_method VARCHAR(20) NOT NULL DEFAULT 'cash',
-  -- Methods: 'cash', 'card', 'mixed'
+  -- Methods: 'cash', 'card', 'mixed', 'credit'
   cash_tendered DECIMAL(12,2) DEFAULT 0,
   card_amount DECIMAL(12,2) DEFAULT 0,
   change_amount DECIMAL(12,2) DEFAULT 0,
@@ -245,6 +284,7 @@ CREATE TABLE IF NOT EXISTS sales (
   void_reason TEXT,
   notes TEXT,
   customer_name VARCHAR(255),
+  customer_id INTEGER REFERENCES customers(id),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -271,6 +311,7 @@ CREATE INDEX IF NOT EXISTS idx_sales_shift ON sales(shift_id);
 CREATE INDEX IF NOT EXISTS idx_sales_cashier ON sales(cashier_id);
 CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at);
 CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status);
+CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
 

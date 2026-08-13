@@ -41,6 +41,13 @@ export const inventoryReport = async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 };
 
+export const creditReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await reportService.getCreditReport();
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
 export const cashierReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { date_from, date_to } = req.query;
