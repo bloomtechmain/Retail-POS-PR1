@@ -108,4 +108,14 @@ export const runMigrations = async (): Promise<void> => {
     }
     console.log('[migrate] Incremental migrations done.');
   }
+
+  // First-boot seed: only runs once, when the catalog is empty
+  const productCount = await query('SELECT COUNT(*) FROM products', []);
+  if (parseInt(productCount.rows[0].count) === 0) {
+    console.log('[migrate] No products found — loading hardware store seed data...');
+    const seedPath = path.join(__dirname, '..', '..', '..', 'database', 'seed_hardware.sql');
+    const seedSql = fs.readFileSync(seedPath, 'utf-8');
+    await query(seedSql, []);
+    console.log('[migrate] Hardware seed data loaded.');
+  }
 };
