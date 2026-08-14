@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { useLanguageStore } from '../../store/languageStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import { useT } from '../../i18n/translations';
 
 interface SidebarProps {
@@ -14,7 +15,9 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
   const { user, logout, hasPermission } = useAuthStore();
   const navigate = useNavigate();
   const { lang, toggleLang } = useLanguageStore();
+  const { settings } = useSettingsStore();
   const t = useT();
+  const hasShopBranding = Boolean(settings?.setup_completed && settings.business_name);
 
   const navItems = [
     { path: '/dashboard', label: t.nav_dashboard, roles: ['admin', 'manager'], icon: (
@@ -67,6 +70,12 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     )},
+    { path: '/settings', label: t.nav_settings, roles: ['admin'], icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    )},
   ];
 
   const visibleItems = navItems.filter((item) => {
@@ -88,13 +97,13 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
       }}
     >
       {/* Logo */}
-      <div className="px-5 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+      <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-md overflow-hidden">
             <img src="/logo.png" alt="BloomPOS" className="w-full h-full object-contain" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold tracking-wide text-white">BloomPOS</div>
+            <div className="text-sm font-bold tracking-wide text-white truncate">BloomPOS</div>
             <div className="text-[10px] uppercase tracking-widest" style={{ color: 'rgba(148,163,184,0.7)' }}>v1.0</div>
           </div>
           {/* Desktop collapse button */}
@@ -121,6 +130,19 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
             <span className={`text-[10px] font-bold transition-colors ${lang === 'si' ? 'text-white' : 'text-slate-500'}`}>සි</span>
           </button>
         </div>
+
+        {hasShopBranding && (
+          <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            {settings?.logo_data_url && (
+              <div className="w-5 h-5 rounded shrink-0 overflow-hidden bg-white/90">
+                <img src={settings.logo_data_url} alt={settings.business_name} className="w-full h-full object-contain" />
+              </div>
+            )}
+            <div className="text-xs font-medium truncate" style={{ color: 'rgba(203,213,225,0.85)' }}>
+              {settings?.business_name}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Nav */}

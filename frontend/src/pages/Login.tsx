@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useToastStore } from '../store/toastStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AxiosError } from 'axios';
 
@@ -10,6 +11,7 @@ export default function Login() {
   const [password, setPassword] = useState('admin123');
   const { login, isLoading } = useAuthStore();
   const { error: showError } = useToastStore();
+  const { settings } = useSettingsStore();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
@@ -32,6 +34,16 @@ export default function Login() {
             <img src="/logo.png" alt="BloomPOS" className="w-full h-full object-contain p-1" />
           </div>
           <h1 className="text-2xl font-bold text-white">BloomPOS</h1>
+          {settings?.setup_completed && settings.business_name && (
+            <div className="flex items-center justify-center gap-1.5 mt-1.5">
+              {settings.logo_data_url && (
+                <div className="w-4 h-4 rounded overflow-hidden shrink-0">
+                  <img src={settings.logo_data_url} alt={settings.business_name} className="w-full h-full object-contain" />
+                </div>
+              )}
+              <span className="text-surface-300 text-sm">{settings.business_name}</span>
+            </div>
+          )}
           <p className="text-surface-400 text-sm mt-1">Sign in to continue</p>
         </div>
 

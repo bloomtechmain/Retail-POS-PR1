@@ -7,8 +7,7 @@ import { useToastStore } from '../store/toastStore';
 import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
-
-const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
+import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 const EMPTY: Partial<Product> = {
   name: '', name_en: '', barcode: '', sku: '', selling_price: 0, cost_price: 0,
@@ -207,10 +206,33 @@ export default function Products() {
           </div>
           <div>
             <label className="label">{t.category}</label>
-            <select className="input" value={editProduct.category_id || ''} onChange={(e) => setEditProduct(p => ({ ...p, category_id: parseInt(e.target.value) || undefined }))}>
-              <option value="">{t.products_all_categories}</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <div className="flex gap-1.5">
+              <select className="input flex-1" value={editProduct.category_id || ''} onChange={(e) => setEditProduct(p => ({ ...p, category_id: parseInt(e.target.value) || undefined }))}>
+                <option value="">{t.products_all_categories}</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button
+                type="button"
+                title="Add new category"
+                onClick={async () => {
+                  const name = window.prompt('New category name:');
+                  if (!name?.trim()) return;
+                  try {
+                    const r = await api.post('/products/categories', { name: name.trim() });
+                    const newCat = r.data.data;
+                    setCategories(prev => [...prev, newCat].sort((a, b) => a.name.localeCompare(b.name)));
+                    setEditProduct(p => ({ ...p, category_id: newCat.id }));
+                    toast.success('Category added');
+                  } catch (err) {
+                    const axiosErr = err as AxiosError<{ message: string }>;
+                    toast.error(axiosErr.response?.data?.message || 'Failed to add category');
+                  }
+                }}
+                className="btn-secondary px-3 shrink-0"
+              >
+                +
+              </button>
+            </div>
           </div>
           <div>
             <label className="label">{t.products_unit_type}</label>

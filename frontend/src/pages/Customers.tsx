@@ -6,8 +6,7 @@ import { useToastStore } from '../store/toastStore';
 import { Customer, CustomerStatementEntry } from '../types';
 import api from '../services/api';
 import { AxiosError } from 'axios';
-
-const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
+import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 const emptyForm = {
   name: '', phone: '', email: '', address: '', credit_limit: '', notes: '',

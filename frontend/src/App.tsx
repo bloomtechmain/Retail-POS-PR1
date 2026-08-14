@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/shared/ProtectedRoute';
 import { ToastContainer } from './components/ui/Toast';
+import { useSettingsStore } from './store/settingsStore';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
@@ -12,8 +14,14 @@ import Reports from './pages/Reports';
 import Shifts from './pages/Shifts';
 import Users from './pages/Users';
 import Customers from './pages/Customers';
+import Setup from './pages/Setup';
+import SettingsPage from './pages/Settings';
 
 export default function App() {
+  useEffect(() => {
+    useSettingsStore.getState().fetchSettings();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -40,6 +48,12 @@ export default function App() {
         {/* Protected — Admin only */}
         <Route element={<ProtectedRoute roles={['admin']} />}>
           <Route path="/users" element={<Users />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+
+        {/* Protected — Admin only, no sidebar/nav chrome (first-run setup) */}
+        <Route element={<ProtectedRoute roles={['admin']} noLayout />}>
+          <Route path="/setup" element={<Setup />} />
         </Route>
 
         {/* Default redirects */}

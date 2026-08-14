@@ -4,8 +4,8 @@ import { PageLoader } from '../components/ui/LoadingSpinner';
 import { DashboardStats } from '../types';
 import api from '../services/api';
 import { useT } from '../i18n/translations';
+import { formatCurrency as fmt } from '../utils/formatCurrency';
 
-const fmt = (n: number) => `LKR ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtNum = (n: number) => Number(n).toLocaleString('en-US');
 
 function StatCard({ label, value, sub, color = 'blue' }: {

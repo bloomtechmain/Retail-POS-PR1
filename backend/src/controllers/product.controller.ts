@@ -66,6 +66,13 @@ export const categories = async (req: AuthRequest, res: Response, next: NextFunc
   } catch (err) { next(err); }
 };
 
+export const createCategory = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await productService.createCategory(req.body);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
 export const brands = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const data = await productService.getBrands();

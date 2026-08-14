@@ -7,6 +7,7 @@ import { Promotion, Category, Product } from '../types';
 import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
+import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 const EMPTY: Partial<Promotion> = {
   name: '', type: 'percentage', discount_value: 0,
@@ -111,7 +112,7 @@ export default function Promotions() {
                     <td className="font-medium">{p.name}</td>
                     <td><span className="badge badge-blue">{typeLabels[p.type]}</span></td>
                     <td className="font-mono">
-                      {p.type === 'percentage' ? `${p.discount_value}%` : `LKR ${p.discount_value}`}
+                      {p.type === 'percentage' ? `${p.discount_value}%` : fmt(p.discount_value ?? 0)}
                     </td>
                     <td className="capitalize">{p.applies_to}</td>
                     <td className="text-xs text-surface-500">
