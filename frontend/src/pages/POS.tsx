@@ -8,8 +8,8 @@ import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
-
-const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
+import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { useSettingsStore } from '../store/settingsStore';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -23,7 +23,7 @@ const promoDesc = (p: Promotion) => {
     const scope = p.applies_to === 'all' ? 'bill total'
       : p.applies_to === 'category' ? (p.category_name || 'category')
       : (p.product_name || 'product');
-    return `LKR ${val} off ${scope}`;
+    return `${fmt(val)} off ${scope}`;
   }
   if (p.type === 'buy_x_get_y') return `Buy ${p.buy_quantity} Get ${p.get_quantity} Free`;
   return p.description || p.type;
@@ -279,12 +279,15 @@ function PaymentModal({
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => void }) {
   const t = useT();
+  const { settings } = useSettingsStore();
   if (!sale) return null;
   return (
     <Modal isOpen={!!sale} onClose={onClose} title={t.pos_receipt_title} size="sm">
       <div className="font-mono text-sm space-y-2 print:text-xs" id="receipt">
         <div className="text-center pb-3 border-b border-dashed border-surface-300">
-          <div className="text-lg font-bold">RetailPOS</div>
+          <div className="text-lg font-bold">{(settings?.setup_completed && settings.business_name) || 'BloomPOS'}</div>
+          {settings?.setup_completed && settings.address && <div className="text-xs text-surface-500">{settings.address}</div>}
+          {settings?.setup_completed && settings.phone && <div className="text-xs text-surface-500">{settings.phone}</div>}
           <div className="text-xs text-surface-500">#{sale.sale_number}</div>
           <div className="text-xs text-surface-500">{new Date(sale.created_at).toLocaleString()}</div>
           {sale.payment_method === 'credit' && (
@@ -656,6 +659,7 @@ function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
 export default function POS() {
   const { user } = useAuthStore();
   const t = useT();
+  const { settings } = useSettingsStore();
   const toast    = useToastStore();
   const pos      = usePOSStore();
 
@@ -781,7 +785,7 @@ export default function POS() {
             <p className="text-surface-500 text-sm mt-1">{t.pos_open_shift_hint}</p>
           </div>
           <div>
-            <label className="label">{t.pos_opening_cash}</label>
+            <label className="label">{t.pos_opening_cash} ({settings?.currency_symbol ?? '$'})</label>
             <input type="number" className="input-lg text-center font-mono" value={openingCash}
               onChange={(e) => setOpeningCash(e.target.value)} min="0" step="0.01" autoFocus />
           </div>
@@ -984,7 +988,7 @@ export default function POS() {
             />
           </div>
           <div>
-            <label className="label text-xs">{t.pos_bill_discount}</label>
+            <label className="label text-xs">{t.pos_bill_discount} ({settings?.currency_symbol ?? '$'})</label>
             <input
               type="number"
               className="input py-2 text-sm font-mono"

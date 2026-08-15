@@ -7,11 +7,12 @@ import { Shift } from '../types';
 import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
-
-const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
+import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { useSettingsStore } from '../store/settingsStore';
 
 export default function Shifts() {
   const t = useT();
+  const { settings } = useSettingsStore();
   const toast = useToastStore();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
@@ -169,7 +170,7 @@ export default function Shifts() {
         }>
         <div className="space-y-4">
           <div>
-            <label className="label">{t.shifts_opening_cash_label}</label>
+            <label className="label">{t.shifts_opening_cash_label} ({settings?.currency_symbol ?? '$'})</label>
             <input type="number" className="input-lg font-mono text-center" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} min="0" step="0.01" autoFocus />
           </div>
         </div>
@@ -201,7 +202,7 @@ export default function Shifts() {
             </div>
           )}
           <div>
-            <label className="label">{t.shifts_actual_cash_label}</label>
+            <label className="label">{t.shifts_actual_cash_label} ({settings?.currency_symbol ?? '$'})</label>
             <input type="number" className="input-lg font-mono text-center" value={actualCash} onChange={(e) => setActualCash(e.target.value)} min="0" step="0.01" autoFocus />
           </div>
           <div>

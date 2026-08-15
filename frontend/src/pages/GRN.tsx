@@ -7,8 +7,7 @@ import { GRN, GRNItem, Supplier, Product } from '../types';
 import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
-
-const fmt = (n: number) => `LKR ${Number(n).toFixed(2)}`;
+import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 export default function GRNPage() {
   const t = useT();

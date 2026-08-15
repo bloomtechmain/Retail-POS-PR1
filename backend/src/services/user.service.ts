@@ -38,6 +38,11 @@ export const updateUser = async (
   id: number,
   data: { name?: string; email?: string; role_id?: number; is_active?: boolean; pin?: string; password?: string }
 ): Promise<User> => {
+  if (data.email) {
+    const existing = await query('SELECT id FROM users WHERE email = $1 AND id != $2', [data.email, id]);
+    if (existing.rows.length > 0) throw createError('Email already exists', 400);
+  }
+
   const fields: string[] = [];
   const values: unknown[] = [];
   let i = 1;

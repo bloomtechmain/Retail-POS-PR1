@@ -39,6 +39,21 @@ export interface Brand {
   deleted_at?: Date;
 }
 
+export interface Settings {
+  id: number;
+  business_name: string;
+  business_type: string;
+  logo_data_url?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  currency_code: string;
+  currency_symbol: string;
+  setup_completed: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface Product {
   id: number;
   name: string;

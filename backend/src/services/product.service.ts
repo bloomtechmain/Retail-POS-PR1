@@ -189,6 +189,15 @@ export const getCategories = async () => {
   return result.rows;
 };
 
+export const createCategory = async (input: { name: string; color?: string; description?: string }) => {
+  if (!input.name?.trim()) throw createError('Category name is required', 400);
+  const result = await query(
+    `INSERT INTO categories (name, color, description) VALUES ($1, $2, $3) RETURNING *`,
+    [input.name.trim(), input.color || '#6366f1', input.description || null]
+  );
+  return result.rows[0];
+};
+
 export const getBrands = async () => {
   const result = await query(
     'SELECT * FROM brands WHERE deleted_at IS NULL ORDER BY name',

@@ -102,20 +102,27 @@ export const runMigrations = async (): Promise<void> => {
       `CREATE INDEX IF NOT EXISTS idx_customer_payments_date ON customer_payments(created_at)`,
       `ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id)`,
       `CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        business_name VARCHAR(255) NOT NULL DEFAULT 'My Business',
+        business_type VARCHAR(100) DEFAULT '',
+        logo_data_url TEXT,
+        address TEXT,
+        phone VARCHAR(50),
+        email VARCHAR(255),
+        currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
+        currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
+        setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        CONSTRAINT settings_singleton CHECK (id = 1)
+      )`,
+      `INSERT INTO settings (id, business_name, currency_code, currency_symbol, setup_completed)
+       VALUES (1, 'My Business', 'USD', '$', FALSE) ON CONFLICT (id) DO NOTHING`,
     ];
     for (const sql of alterations) {
       await query(sql, []);
     }
     console.log('[migrate] Incremental migrations done.');
-  }
-
-  // First-boot seed: only runs once, when the catalog is empty
-  const productCount = await query('SELECT COUNT(*) FROM products', []);
-  if (parseInt(productCount.rows[0].count) === 0) {
-    console.log('[migrate] No products found — loading hardware store seed data...');
-    const seedPath = path.join(__dirname, '..', '..', '..', 'database', 'seed_hardware.sql');
-    const seedSql = fs.readFileSync(seedPath, 'utf-8');
-    await query(seedSql, []);
-    console.log('[migrate] Hardware seed data loaded.');
   }
 };

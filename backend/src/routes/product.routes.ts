@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as productController from '../controllers/product.controller';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -9,6 +9,7 @@ router.use(authenticate);
 router.get('/', productController.list);
 router.get('/low-stock', productController.lowStock);
 router.get('/categories', productController.categories);
+router.post('/categories', requireRole('admin', 'manager'), productController.createCategory);
 router.get('/brands', productController.brands);
 router.get('/barcode/:barcode', productController.getByBarcode);
 router.get('/:id', productController.getById);

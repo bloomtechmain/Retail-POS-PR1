@@ -6,6 +6,7 @@ import { useToastStore } from '../store/toastStore';
 import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
+import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 interface Movement {
   id: number;
@@ -148,8 +149,8 @@ export default function Inventory() {
                     </td>
                     <td>{p.category_name || '—'}</td>
                     <td className="text-right font-mono">{Number(p.current_stock).toFixed(2)}</td>
-                    <td className="text-right font-mono">LKR {Number(p.avg_cost).toFixed(4)}</td>
-                    <td className="text-right font-mono">LKR {Number(p.stock_value).toFixed(2)}</td>
+                    <td className="text-right font-mono">{fmt(p.avg_cost, 4)}</td>
+                    <td className="text-right font-mono">{fmt(p.stock_value)}</td>
                     <td>
                       <span className={`badge ${p.is_low_stock ? 'badge-red' : 'badge-green'}`}>
                         {p.is_low_stock ? t.inventory_low_stock : t.inventory_ok}

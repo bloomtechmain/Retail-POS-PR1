@@ -369,6 +369,26 @@ CREATE TABLE IF NOT EXISTS inventory_adjustments (
 );
 
 -- ============================================================
+-- SETTINGS (singleton — business profile / branding / currency)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  business_name VARCHAR(255) NOT NULL DEFAULT 'My Business',
+  business_type VARCHAR(100) DEFAULT '',
+  logo_data_url TEXT,
+  address TEXT,
+  phone VARCHAR(50),
+  email VARCHAR(255),
+  currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
+  currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
+  setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT settings_singleton CHECK (id = 1)
+);
+
+-- ============================================================
 -- SEED DATA
 -- ============================================================
 
@@ -429,3 +449,8 @@ INSERT INTO categories (name, color) VALUES
 ('Health & Beauty', '#10b981'),
 ('Home & Office', '#8b5cf6')
 ON CONFLICT DO NOTHING;
+
+-- Insert default settings row (singleton)
+INSERT INTO settings (id, business_name, currency_code, currency_symbol, setup_completed)
+VALUES (1, 'My Business', 'USD', '$', FALSE)
+ON CONFLICT (id) DO NOTHING;

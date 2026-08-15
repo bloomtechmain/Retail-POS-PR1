@@ -11,6 +11,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
+  setUser: (user: User) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -57,6 +58,8 @@ export const useAuthStore = create<AuthState>()(
         }
         return Boolean(current);
       },
+
+      setUser: (user) => set({ user }),
     }),
     {
       name: 'pos_auth',

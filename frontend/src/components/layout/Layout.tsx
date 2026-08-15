@@ -1,9 +1,12 @@
 import { ReactNode, useState } from 'react';
 import { Sidebar } from './Sidebar';
+import { useSettingsStore } from '../../store/settingsStore';
 
 export function Layout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
+  const { settings } = useSettingsStore();
+  const hasShopBranding = Boolean(settings?.setup_completed && settings.business_name);
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-50">
@@ -47,11 +50,22 @@ export function Layout({ children }: { children: ReactNode }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg overflow-hidden shadow-sm">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg overflow-hidden shadow-sm shrink-0">
               <img src="/logo.png" alt="BloomPOS" className="w-full h-full object-contain" />
             </div>
-            <span className="font-bold text-surface-900 text-sm">BloomPOS</span>
+            <span className="font-bold text-surface-900 text-sm shrink-0">BloomPOS</span>
+            {hasShopBranding && (
+              <>
+                <span className="text-surface-300 shrink-0">·</span>
+                {settings?.logo_data_url && (
+                  <div className="w-5 h-5 rounded overflow-hidden shrink-0">
+                    <img src={settings.logo_data_url} alt={settings.business_name} className="w-full h-full object-contain" />
+                  </div>
+                )}
+                <span className="text-surface-500 text-xs truncate">{settings?.business_name}</span>
+              </>
+            )}
           </div>
         </header>
 
