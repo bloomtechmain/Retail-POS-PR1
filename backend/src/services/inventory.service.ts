@@ -1,6 +1,6 @@
 import { query } from '../config/database';
 import { createError } from '../middleware/error';
-import { round2 } from '../utils/helpers';
+import { round3 } from '../utils/helpers';
 
 export const getStockMovements = async (params: {
   product_id?: number;
@@ -26,7 +26,7 @@ export const getStockMovements = async (params: {
 
   const countResult = await query(`SELECT COUNT(*) FROM stock_movements sm ${where}`, values);
   const dataResult = await query(
-    `SELECT sm.*, p.name as product_name, p.sku, u.name as created_by_name
+    `SELECT sm.*, p.name as product_name, p.sku, p.unit_type, u.name as created_by_name
      FROM stock_movements sm
      JOIN products p ON sm.product_id = p.id
      LEFT JOIN users u ON sm.created_by = u.id
@@ -61,19 +61,19 @@ export const adjustInventory = async (
 
   switch (adjustmentType) {
     case 'add':
-      newStock = round2(currentStock + quantity);
+      newStock = round3(currentStock + quantity);
       movementQty = quantity;
       movementType = 'adjustment_in';
       break;
     case 'subtract':
-      newStock = round2(currentStock - quantity);
+      newStock = round3(currentStock - quantity);
       movementQty = quantity;
       movementType = 'adjustment_out';
       break;
     case 'set':
       movementQty = Math.abs(quantity - currentStock);
       movementType = quantity >= currentStock ? 'adjustment_in' : 'adjustment_out';
-      newStock = round2(quantity);
+      newStock = round3(quantity);
       break;
     default:
       throw createError('Invalid adjustment type', 400);

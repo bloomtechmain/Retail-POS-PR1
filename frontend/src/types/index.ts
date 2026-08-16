@@ -69,6 +69,7 @@ export interface CartItem {
   product_name: string;
   barcode?: string;
   sku: string;
+  unit_type?: string;
   quantity: number;
   unit_price: number;
   original_price: number;

@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateSaleNumber, generateReturnNumber, round2, calculateWeightedAvgCost } from '../utils/helpers';
+import { generateSaleNumber, generateReturnNumber, round2, round3, calculateWeightedAvgCost } from '../utils/helpers';
 import { Sale, CreateSalePayload, SaleReturn, ReturnSaleItemsPayload } from '../types';
 
 export const createSale = async (data: CreateSalePayload, cashierId: number): Promise<Sale> => {
@@ -145,7 +145,7 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
         [item.product_id]
       );
       const balanceBefore = parseFloat(stockResult.rows[0].current_stock);
-      const balanceAfter = round2(balanceBefore - item.quantity);
+      const balanceAfter = round3(balanceBefore - item.quantity);
 
       // Update stock (allow negative)
       await client.query(
@@ -285,7 +285,7 @@ export const voidSale = async (id: number, reason: string, userId: number): Prom
         [item.product_id]
       );
       const balanceBefore = parseFloat(stockResult.rows[0].current_stock);
-      const balanceAfter = round2(balanceBefore + parseFloat(item.quantity));
+      const balanceAfter = round3(balanceBefore + parseFloat(item.quantity));
 
       await client.query(
         'UPDATE products SET current_stock = $1, updated_at = NOW() WHERE id = $2',
@@ -375,7 +375,7 @@ export const returnSaleItems = async (
       if (!original) throw createError(`Item ${returnItem.sale_item_id} does not belong to this sale`, 400);
 
       const alreadyReturned = returnedQtyMap.get(returnItem.sale_item_id) ?? 0;
-      const remainingReturnable = round2(parseFloat(original.quantity) - alreadyReturned);
+      const remainingReturnable = round3(parseFloat(original.quantity) - alreadyReturned);
 
       if (returnItem.quantity <= 0) throw createError('Return quantity must be greater than 0', 400);
       if (returnItem.quantity > remainingReturnable) {
@@ -426,7 +426,7 @@ export const returnSaleItems = async (
       const currentStock = parseFloat(product.current_stock);
       const currentAvgCost = parseFloat(product.avg_cost);
       const balanceBefore = currentStock;
-      const balanceAfter = round2(currentStock + item.quantity);
+      const balanceAfter = round3(currentStock + item.quantity);
       const newAvgCost = calculateWeightedAvgCost(currentStock, currentAvgCost, item.quantity, item.cost_price);
 
       await client.query(
@@ -455,7 +455,7 @@ export const returnSaleItems = async (
     );
     const allFullyReturned = originalItems.every((oi: any) => {
       const totalReturned = updatedReturnedMap.get(oi.id) ?? 0;
-      return round2(totalReturned) >= round2(parseFloat(oi.quantity));
+      return round3(totalReturned) >= round3(parseFloat(oi.quantity));
     });
 
     await client.query(

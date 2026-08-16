@@ -8,6 +8,7 @@ import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { getUnitMeta, formatQuantity } from '../utils/units';
 
 export default function GRNPage() {
   const t = useT();
@@ -49,6 +50,9 @@ export default function GRNPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const getProductUnit = (productId: string | number) =>
+    products.find(p => p.id === Number(productId))?.unit_type;
 
   const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '' }]);
   const removeItem = (idx: number) => setItems(i => i.filter((_, j) => j !== idx));
@@ -232,7 +236,10 @@ export default function GRNPage() {
                       </select>
                     </td>
                     <td>
-                      <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step="0.001" />
+                      <div className="flex items-center gap-1.5">
+                        <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={getUnitMeta(getProductUnit(item.product_id)).step} />
+                        {item.product_id && <span className="text-xs text-surface-400 shrink-0">{getUnitMeta(getProductUnit(item.product_id)).abbr}</span>}
+                      </div>
                     </td>
                     <td>
                       <input type="number" className="input py-1.5 text-sm font-mono" value={item.buying_price} onChange={(e) => updateItem(idx, 'buying_price', e.target.value)} placeholder="0.00" min="0" step="0.0001" />
@@ -304,7 +311,7 @@ export default function GRNPage() {
                 {selectedGRN.items?.map((item) => (
                   <tr key={item.id}>
                     <td>{item.product_name}</td>
-                    <td className="text-right font-mono">{item.quantity}</td>
+                    <td className="text-right font-mono">{formatQuantity(item.quantity, getProductUnit(item.product_id))}</td>
                     <td className="text-right font-mono">{fmt(item.buying_price)}</td>
                     <td className="text-right font-mono font-semibold">{fmt(item.subtotal || 0)}</td>
                   </tr>
@@ -348,7 +355,7 @@ export default function GRNPage() {
                 {selectedGRN.items?.map((item) => (
                   <tr key={item.id}>
                     <td>{item.product_name}</td>
-                    <td className="text-right font-mono">{Number(item.quantity).toFixed(3)}</td>
+                    <td className="text-right font-mono">{formatQuantity(item.quantity, getProductUnit(item.product_id))}</td>
                     <td className="text-right font-mono">{fmt(item.buying_price)}</td>
                     <td className="text-right">
                       <input
@@ -357,7 +364,7 @@ export default function GRNPage() {
                         placeholder="0"
                         min="0"
                         max={Number(item.quantity)}
-                        step="0.001"
+                        step={getUnitMeta(getProductUnit(item.product_id)).step}
                         value={returnItems[item.id!] ?? ''}
                         onChange={(e) => setReturnItems((r) => ({ ...r, [item.id!]: e.target.value }))}
                       />

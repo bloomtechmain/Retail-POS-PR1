@@ -4,6 +4,7 @@ import { PageLoader } from '../components/ui/LoadingSpinner';
 import api from '../services/api';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { formatQuantity } from '../utils/units';
 
 const today = new Date().toISOString().slice(0, 10);
 const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
@@ -169,7 +170,7 @@ export default function Reports() {
                       <td className="font-medium">{String(p.name)}</td>
                       <td className="font-mono text-xs">{String(p.sku)}</td>
                       <td>{String(p.category_name || '—')}</td>
-                      <td className="text-right font-mono">{Number(p.current_stock).toFixed(2)}</td>
+                      <td className="text-right font-mono">{formatQuantity(Number(p.current_stock), p.unit_type as string)}</td>
                       <td className="text-right font-mono">{fmt(Number(p.avg_cost), 4)}</td>
                       <td className="text-right font-mono font-semibold">{fmt(Number(p.stock_value))}</td>
                       <td><span className={`badge ${p.is_low_stock ? 'badge-red' : 'badge-green'}`}>{p.is_low_stock ? t.inventory_low_stock : t.inventory_ok}</span></td>
