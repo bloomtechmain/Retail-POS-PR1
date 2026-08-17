@@ -1,6 +1,7 @@
-import { query } from '../config/database';
+import { PoolClient } from 'pg';
+import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateSKU } from '../utils/helpers';
+import { generateSKU, addBatch } from '../utils/helpers';
 import { Product, PaginatedResult } from '../types';
 
 export const getProducts = async (params: {
@@ -99,34 +100,54 @@ export const createProduct = async (data: Partial<Product>): Promise<Product> =>
   const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
   if (existing.rows.length > 0) throw createError('SKU already exists', 400);
 
-  const result = await query(
-    `INSERT INTO products (
-       name, name_en, barcode, sku, description, selling_price, cost_price, avg_cost,
-       category_id, brand_id, unit_type, current_stock, low_stock_level,
-       tax_rate, image_url, is_active, allow_negative_stock
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-     RETURNING *`,
-    [
-      data.name,
-      data.name_en || null,
-      data.barcode || null,
-      sku,
-      data.description || null,
-      data.selling_price,
-      data.cost_price || 0,
-      data.cost_price || 0,
-      data.category_id || null,
-      data.brand_id || null,
-      data.unit_type || 'piece',
-      data.current_stock || 0,
-      data.low_stock_level || 5,
-      data.tax_rate || 0,
-      data.image_url || null,
-      data.is_active !== false,
-      data.allow_negative_stock !== false,
-    ]
-  );
-  return result.rows[0];
+  const costingMethod = data.costing_method === 'fifo' ? 'fifo' : 'weighted_average';
+  const openingStock = data.current_stock || 0;
+  const openingCost = data.cost_price || 0;
+
+  return transaction(async (client: PoolClient) => {
+    const result = await client.query(
+      `INSERT INTO products (
+         name, name_en, barcode, sku, description, selling_price, cost_price, avg_cost,
+         category_id, brand_id, unit_type, current_stock, low_stock_level,
+         tax_rate, image_url, is_active, allow_negative_stock, costing_method
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       RETURNING *`,
+      [
+        data.name,
+        data.name_en || null,
+        data.barcode || null,
+        sku,
+        data.description || null,
+        data.selling_price,
+        openingCost,
+        openingCost,
+        data.category_id || null,
+        data.brand_id || null,
+        data.unit_type || 'piece',
+        openingStock,
+        data.low_stock_level || 5,
+        data.tax_rate || 0,
+        data.image_url || null,
+        data.is_active !== false,
+        data.allow_negative_stock !== false,
+        costingMethod,
+      ]
+    );
+    const product = result.rows[0];
+
+    // FIFO products get their opening stock recorded as a batch too, so it's
+    // priced and tracked the same way as everything received afterward
+    // (rather than falling back to avg_cost as unbatched legacy stock).
+    if (costingMethod === 'fifo' && openingStock > 0) {
+      await addBatch(client, {
+        productId: product.id,
+        quantity: openingStock,
+        unitCost: openingCost,
+      });
+    }
+
+    return product;
+  });
 };
 
 export const updateProduct = async (id: number, data: Partial<Product>): Promise<Product> => {
@@ -134,6 +155,9 @@ export const updateProduct = async (id: number, data: Partial<Product>): Promise
   const values: unknown[] = [];
   let i = 1;
 
+  // costing_method is deliberately excluded — it's chosen once, at product
+  // creation, not editable here (batch/cost data already depends on it,
+  // so changing it after the fact would corrupt the cost trail).
   const allowed = [
     'name', 'name_en', 'barcode', 'sku', 'description', 'selling_price', 'cost_price',
     'category_id', 'brand_id', 'unit_type', 'low_stock_level',
@@ -202,6 +226,18 @@ export const getBrands = async () => {
   const result = await query(
     'SELECT * FROM brands WHERE deleted_at IS NULL ORDER BY name',
     []
+  );
+  return result.rows;
+};
+
+// Same order batches are consumed in (nearest-expiry-first, then oldest-received-first)
+// so the list reads top-to-bottom as "what sells next".
+export const getProductBatches = async (productId: number) => {
+  const result = await query(
+    `SELECT * FROM product_batches
+     WHERE product_id = $1
+     ORDER BY (expiry_date IS NULL), expiry_date ASC, created_at ASC, id ASC`,
+    [productId]
   );
   return result.rows;
 };

@@ -119,6 +119,21 @@ export const runMigrations = async (): Promise<void> => {
       )`,
       `INSERT INTO settings (id, business_name, currency_code, currency_symbol, setup_completed)
        VALUES (1, 'My Business', 'USD', '$', FALSE) ON CONFLICT (id) DO NOTHING`,
+      `ALTER TABLE products ADD COLUMN IF NOT EXISTS costing_method VARCHAR(20)`,
+      `CREATE TABLE IF NOT EXISTS product_batches (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        grn_item_id INTEGER REFERENCES grn_items(id),
+        batch_number VARCHAR(100) NOT NULL,
+        quantity_received DECIMAL(12,3) NOT NULL,
+        quantity_remaining DECIMAL(12,3) NOT NULL,
+        unit_cost DECIMAL(12,4) NOT NULL,
+        expiry_date DATE,
+        received_date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id)`,
     ];
     for (const sql of alterations) {
       await query(sql, []);

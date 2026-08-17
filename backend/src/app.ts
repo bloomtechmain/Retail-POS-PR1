@@ -18,6 +18,14 @@ const isProduction = process.env.NODE_ENV === 'production';
 // ── Security & middleware ───────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
 
+// Live POS data (stock, sales, etc.) must never be served stale from a browser
+// or intermediate cache — disable ETag/conditional-GET caching on API responses.
+app.disable('etag');
+app.use('/api', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 app.use(cors({
   origin: isElectron
     ? `http://localhost:${PORT}`

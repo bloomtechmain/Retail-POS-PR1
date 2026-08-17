@@ -8,6 +8,7 @@ import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { getUnitMeta, formatQuantity } from '../utils/units';
+import { ProductBatch } from '../types';
 
 interface Movement {
   id: number;
@@ -32,11 +33,13 @@ interface InventoryProduct {
   barcode?: string;
   category_name?: string;
   unit_type?: string;
+  costing_method?: string;
   current_stock: number;
   low_stock_level: number;
   avg_cost: number;
   selling_price: number;
   stock_value: number;
+  retail_value: number;
   is_low_stock: boolean;
 }
 
@@ -58,10 +61,11 @@ export default function Inventory() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
   const [adjustModal, setAdjustModal] = useState(false);
-  const [receiveModal, setReceiveModal] = useState(false);
+  const [batchesModal, setBatchesModal] = useState(false);
+  const [batches, setBatches] = useState<ProductBatch[]>([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryProduct | null>(null);
   const [adjForm, setAdjForm] = useState({ adjustment_type: 'add', quantity: '', reason: '' });
-  const [receiveForm, setReceiveForm] = useState({ quantity: '', buying_price: '', notes: '' });
   const [saving, setSaving] = useState(false);
 
   const loadStock = useCallback(async () => {
@@ -91,10 +95,14 @@ export default function Inventory() {
     setAdjustModal(true);
   };
 
-  const openReceive = (p: InventoryProduct) => {
+  const openBatches = async (p: InventoryProduct) => {
     setSelectedProduct(p);
-    setReceiveForm({ quantity: '', buying_price: p.avg_cost ? String(p.avg_cost) : '', notes: '' });
-    setReceiveModal(true);
+    setBatchesModal(true);
+    setLoadingBatches(true);
+    try {
+      const r = await api.get(`/products/${p.id}/batches`);
+      setBatches(r.data.data);
+    } finally { setLoadingBatches(false); }
   };
 
   const handleAdjust = async () => {
@@ -115,29 +123,6 @@ export default function Inventory() {
     } catch (err) {
       const e = err as AxiosError<{ message: string }>;
       toast.error(e.response?.data?.message || 'Adjustment failed');
-    } finally { setSaving(false); }
-  };
-
-  const handleReceive = async () => {
-    const qty = parseFloat(receiveForm.quantity);
-    const price = parseFloat(receiveForm.buying_price);
-    if (!selectedProduct || !qty || qty <= 0 || isNaN(price) || price < 0) {
-      toast.error('Please fill all required fields');
-      return;
-    }
-    setSaving(true);
-    try {
-      await api.post('/grn', {
-        received_date: new Date().toISOString().slice(0, 10),
-        notes: receiveForm.notes || undefined,
-        items: [{ product_id: selectedProduct.id, quantity: qty, buying_price: price }],
-      });
-      toast.success('Stock received');
-      setReceiveModal(false);
-      loadStock();
-    } catch (err) {
-      const e = err as AxiosError<{ message: string }>;
-      toast.error(e.response?.data?.message || 'Failed to record received stock');
     } finally { setSaving(false); }
   };
 
@@ -170,6 +155,7 @@ export default function Inventory() {
                   <th className="text-right">{t.inventory_col_stock}</th>
                   <th className="text-right">{t.inventory_col_avg_cost}</th>
                   <th className="text-right">{t.inventory_col_stock_value}</th>
+                  <th className="text-right">{t.inventory_col_retail_value}</th>
                   <th>{t.inventory_col_status}</th>
                   <th></th>
                 </tr>
@@ -185,6 +171,7 @@ export default function Inventory() {
                     <td className="text-right font-mono">{formatQuantity(p.current_stock, p.unit_type)}</td>
                     <td className="text-right font-mono">{fmt(p.avg_cost, 4)}</td>
                     <td className="text-right font-mono">{fmt(p.stock_value)}</td>
+                    <td className="text-right font-mono">{fmt(p.retail_value)}</td>
                     <td>
                       <span className={`badge ${p.is_low_stock ? 'badge-red' : 'badge-green'}`}>
                         {p.is_low_stock ? t.inventory_low_stock : t.inventory_ok}
@@ -192,7 +179,9 @@ export default function Inventory() {
                     </td>
                     <td>
                       <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => openReceive(p)} className="btn-ghost btn-sm text-emerald-600 hover:bg-emerald-50">{t.inventory_receive_btn}</button>
+                        {p.costing_method === 'fifo' && (
+                          <button onClick={() => openBatches(p)} className="btn-ghost btn-sm">View Batches</button>
+                        )}
                         <button onClick={() => openAdjust(p)} className="btn-ghost btn-sm">{t.inventory_adjust_btn}</button>
                       </div>
                     </td>
@@ -282,61 +271,46 @@ export default function Inventory() {
         </div>
       </Modal>
 
-      {/* Receive Stock Modal */}
+      {/* Batches Modal */}
       <Modal
-        isOpen={receiveModal}
-        onClose={() => setReceiveModal(false)}
-        title={`${t.inventory_receive_title}: ${selectedProduct?.name}`}
-        size="sm"
-        footer={
-          <>
-            <button onClick={() => setReceiveModal(false)} className="btn-secondary">{t.cancel}</button>
-            <button onClick={handleReceive} disabled={saving} className="btn-primary">
-              {saving ? t.saving : t.inventory_receive_confirm}
-            </button>
-          </>
-        }
+        isOpen={batchesModal}
+        onClose={() => setBatchesModal(false)}
+        title={`Batches: ${selectedProduct?.name}`}
+        size="lg"
+        footer={<button onClick={() => setBatchesModal(false)} className="btn-secondary">{t.cancel}</button>}
       >
-        <div className="space-y-4">
-          <p className="text-xs text-surface-500">{t.inventory_receive_hint}</p>
-          <div className="bg-surface-50 rounded-lg p-3 text-sm">
-            <span className="text-surface-500">{t.inventory_current_stock} </span>
-            <span className="font-bold">{formatQuantity(selectedProduct?.current_stock ?? 0, selectedProduct?.unit_type)}</span>
+        {loadingBatches ? (
+          <PageLoader />
+        ) : batches.length === 0 ? (
+          <p className="text-center py-8 text-surface-400 text-sm">No batches yet.</p>
+        ) : (
+          <div className="table-wrapper">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Batch</th>
+                  <th>Received</th>
+                  <th>Expiry</th>
+                  <th className="text-right">Remaining</th>
+                  <th className="text-right">Received Qty</th>
+                  <th className="text-right">Unit Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((b) => (
+                  <tr key={b.id}>
+                    <td className="font-mono text-xs">{b.batch_number}</td>
+                    <td className="text-sm">{new Date(b.received_date).toLocaleDateString()}</td>
+                    <td className="text-sm">{b.expiry_date ? new Date(b.expiry_date).toLocaleDateString() : '—'}</td>
+                    <td className="text-right font-mono">{formatQuantity(b.quantity_remaining, selectedProduct?.unit_type)}</td>
+                    <td className="text-right font-mono text-surface-500">{formatQuantity(b.quantity_received, selectedProduct?.unit_type)}</td>
+                    <td className="text-right font-mono">{fmt(b.unit_cost, 4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div>
-            <label className="label">{t.inventory_receive_qty} ({getUnitMeta(selectedProduct?.unit_type).abbr})</label>
-            <input
-              type="number"
-              className="input"
-              value={receiveForm.quantity}
-              onChange={(e) => setReceiveForm(f => ({ ...f, quantity: e.target.value }))}
-              min="0"
-              step={getUnitMeta(selectedProduct?.unit_type).step}
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="label">{t.inventory_receive_price}</label>
-            <input
-              type="number"
-              className="input"
-              value={receiveForm.buying_price}
-              onChange={(e) => setReceiveForm(f => ({ ...f, buying_price: e.target.value }))}
-              min="0"
-              step="0.0001"
-            />
-          </div>
-          <div>
-            <label className="label">{t.inventory_receive_notes}</label>
-            <input
-              type="text"
-              className="input"
-              value={receiveForm.notes}
-              onChange={(e) => setReceiveForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder={t.inventory_receive_notes_placeholder}
-            />
-          </div>
-        </div>
+        )}
       </Modal>
     </PageContainer>
   );

@@ -14,6 +14,7 @@ const EMPTY: Partial<Product> = {
   name: '', name_en: '', barcode: '', sku: '', selling_price: 0, cost_price: 0,
   unit_type: 'piece', current_stock: 0, low_stock_level: 5,
   tax_rate: 0, is_active: true, allow_negative_stock: true,
+  costing_method: 'weighted_average',
 };
 
 export default function Products() {
@@ -271,6 +272,23 @@ export default function Products() {
                 value={editProduct.unit_type || ''}
                 onChange={(e) => setEditProduct(p => ({ ...p, unit_type: e.target.value }))}
               />
+            )}
+          </div>
+          <div>
+            <label className="label">Costing Method{!isEditing && ' *'}</label>
+            {isEditing ? (
+              <div className="bg-surface-50 rounded-lg px-3 py-2.5 text-sm text-surface-700">
+                {editProduct.costing_method === 'fifo' ? 'FIFO / Batch-wise' : 'Weighted Average'}
+              </div>
+            ) : (
+              <select
+                className="input"
+                value={editProduct.costing_method || 'weighted_average'}
+                onChange={(e) => setEditProduct(p => ({ ...p, costing_method: e.target.value as Product['costing_method'] }))}
+              >
+                <option value="weighted_average">Weighted Average</option>
+                <option value="fifo">FIFO / Batch-wise</option>
+              </select>
             )}
           </div>
           <div>

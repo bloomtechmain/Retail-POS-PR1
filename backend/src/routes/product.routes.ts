@@ -12,6 +12,7 @@ router.get('/categories', productController.categories);
 router.post('/categories', requireRole('admin', 'manager'), productController.createCategory);
 router.get('/brands', productController.brands);
 router.get('/barcode/:barcode', productController.getByBarcode);
+router.get('/:id/batches', productController.batches);
 router.get('/:id', productController.getById);
 router.post('/', productController.create);
 router.put('/:id', productController.update);

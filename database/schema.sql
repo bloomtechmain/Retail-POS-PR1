@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS products (
   image_url VARCHAR(500),
   is_active BOOLEAN DEFAULT TRUE,
   allow_negative_stock BOOLEAN DEFAULT TRUE,
+  -- NULL until the product's first GRN receipt, when the user chooses
+  -- 'weighted_average' or 'fifo'; sticks for every receipt after that.
+  costing_method VARCHAR(20),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
@@ -131,9 +134,26 @@ CREATE TABLE IF NOT EXISTS grn_items (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Individual batches for products using FIFO/FEFO costing (costing_method='fifo').
+-- Consumed oldest-first, or nearest-expiry-first when expiry_date is set.
+CREATE TABLE IF NOT EXISTS product_batches (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  grn_item_id INTEGER REFERENCES grn_items(id),
+  batch_number VARCHAR(100) NOT NULL,
+  quantity_received DECIMAL(12,3) NOT NULL,
+  quantity_remaining DECIMAL(12,3) NOT NULL,
+  unit_cost DECIMAL(12,4) NOT NULL,
+  expiry_date DATE,
+  received_date DATE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_grn_supplier ON grn(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_grn_date ON grn(received_date);
 CREATE INDEX IF NOT EXISTS idx_grn_items_product ON grn_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id);
 
 -- ============================================================
 -- STOCK MOVEMENTS

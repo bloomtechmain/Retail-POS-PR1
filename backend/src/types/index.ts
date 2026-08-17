@@ -75,9 +75,23 @@ export interface Product {
   image_url?: string;
   is_active: boolean;
   allow_negative_stock: boolean;
+  costing_method?: 'weighted_average' | 'fifo' | null;
   created_at: Date;
   updated_at: Date;
   deleted_at?: Date;
+}
+
+export interface ProductBatch {
+  id: number;
+  product_id: number;
+  grn_item_id?: number;
+  batch_number: string;
+  quantity_received: number;
+  quantity_remaining: number;
+  unit_cost: number;
+  expiry_date?: Date;
+  received_date: Date;
+  created_at: Date;
 }
 
 export interface Supplier {

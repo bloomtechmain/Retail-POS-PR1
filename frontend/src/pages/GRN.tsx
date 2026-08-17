@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
@@ -31,8 +31,10 @@ export default function GRNPage() {
     received_date: new Date().toISOString().slice(0, 10),
     notes: '',
   });
-  const [items, setItems] = useState<Array<{ product_id: string; quantity: string; buying_price: string }>>([
-    { product_id: '', quantity: '', buying_price: '' }
+  const [items, setItems] = useState<Array<{
+    product_id: string; quantity: string; buying_price: string; expiry_date: string;
+  }>>([
+    { product_id: '', quantity: '', buying_price: '', expiry_date: '' }
   ]);
 
   const load = useCallback(async () => {
@@ -54,10 +56,18 @@ export default function GRNPage() {
   const getProductUnit = (productId: string | number) =>
     products.find(p => p.id === Number(productId))?.unit_type;
 
-  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '' }]);
+  const getProductCostingMethod = (productId: string | number) =>
+    products.find(p => p.id === Number(productId))?.costing_method;
+
+  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '', expiry_date: '' }]);
   const removeItem = (idx: number) => setItems(i => i.filter((_, j) => j !== idx));
   const updateItem = (idx: number, field: string, value: string) => {
-    setItems(items.map((item, j) => j === idx ? { ...item, [field]: value } : item));
+    setItems(items.map((item, j) => {
+      if (j !== idx) return item;
+      // Switching products resets any expiry choice made for the previous one
+      if (field === 'product_id') return { ...item, product_id: value, expiry_date: '' };
+      return { ...item, [field]: value };
+    }));
   };
 
   const totalAmount = items.reduce((sum, i) => {
@@ -67,6 +77,7 @@ export default function GRNPage() {
   const handleCreate = async () => {
     const validItems = items.filter(i => i.product_id && i.quantity && i.buying_price);
     if (validItems.length === 0) { toast.error('Add at least one product'); return; }
+
     setSaving(true);
     try {
       await api.post('/grn', {
@@ -76,6 +87,7 @@ export default function GRNPage() {
           product_id: parseInt(i.product_id),
           quantity: parseFloat(i.quantity),
           buying_price: parseFloat(i.buying_price),
+          expiry_date: getProductCostingMethod(i.product_id) === 'fifo' ? (i.expiry_date || undefined) : undefined,
         })),
       });
       toast.success('GRN created and stock updated');
@@ -227,35 +239,55 @@ export default function GRNPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => (
-                  <tr key={idx}>
-                    <td>
-                      <select className="input py-1.5 text-sm" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}>
-                        <option value="">{t.grn_select_product}</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
-                        <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={getUnitMeta(getProductUnit(item.product_id)).step} />
-                        {item.product_id && <span className="text-xs text-surface-400 shrink-0">{getUnitMeta(getProductUnit(item.product_id)).abbr}</span>}
-                      </div>
-                    </td>
-                    <td>
-                      <input type="number" className="input py-1.5 text-sm font-mono" value={item.buying_price} onChange={(e) => updateItem(idx, 'buying_price', e.target.value)} placeholder="0.00" min="0" step="0.0001" />
-                    </td>
-                    <td className="text-right font-mono font-semibold">
-                      {fmt((parseFloat(item.quantity) || 0) * (parseFloat(item.buying_price) || 0))}
-                    </td>
-                    <td>
-                      <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {items.map((item, idx) => {
+                  const showExpiry = getProductCostingMethod(item.product_id) === 'fifo';
+                  return (
+                    <Fragment key={idx}>
+                      <tr>
+                        <td>
+                          <select className="input py-1.5 text-sm" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}>
+                            <option value="">{t.grn_select_product}</option>
+                            {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1.5">
+                            <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={getUnitMeta(getProductUnit(item.product_id)).step} />
+                            {item.product_id && <span className="text-xs text-surface-400 shrink-0">{getUnitMeta(getProductUnit(item.product_id)).abbr}</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <input type="number" className="input py-1.5 text-sm font-mono" value={item.buying_price} onChange={(e) => updateItem(idx, 'buying_price', e.target.value)} placeholder="0.00" min="0" step="0.0001" />
+                        </td>
+                        <td className="text-right font-mono font-semibold">
+                          {fmt((parseFloat(item.quantity) || 0) * (parseFloat(item.buying_price) || 0))}
+                        </td>
+                        <td>
+                          <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                      {showExpiry && (
+                        <tr className="bg-primary-50/40">
+                          <td colSpan={5} className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs font-medium text-surface-600 whitespace-nowrap">Expiry Date (optional)</label>
+                              <input
+                                type="date"
+                                className="input py-1 text-xs"
+                                value={item.expiry_date}
+                                onChange={(e) => updateItem(idx, 'expiry_date', e.target.value)}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr>

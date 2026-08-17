@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateSaleNumber, generateReturnNumber, round2, round3, calculateWeightedAvgCost } from '../utils/helpers';
+import { generateSaleNumber, generateReturnNumber, round2, round3, calculateWeightedAvgCost, consumeFifoBatches, addBatch } from '../utils/helpers';
 import { Sale, CreateSalePayload, SaleReturn, ReturnSaleItemsPayload } from '../types';
 
 export const createSale = async (data: CreateSalePayload, cashierId: number): Promise<Sale> => {
@@ -31,7 +31,11 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
       if (!customer.is_active) throw createError('This customer account is inactive', 400);
     }
 
-    // Calculate totals
+    // Calculate totals — one locked pass per item: lock the product row, determine
+    // its cost (FIFO batch consumption is a real mutation and must happen under
+    // this same lock, not as a separate unlocked lookup), and mutate stock right
+    // here too. A second, lighter pass below just writes the rows using what's
+    // already been decided — no re-querying or re-locking products.
     let subtotal = 0;
     let itemDiscountTotal = 0;
     let taxTotal = 0;
@@ -40,19 +44,25 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
     const processedItems = [];
 
     for (const item of data.cart_items) {
-      // Get current product avg_cost
       const productResult = await client.query(
-        'SELECT id, avg_cost, current_stock, allow_negative_stock FROM products WHERE id = $1',
+        'SELECT id, avg_cost, current_stock, allow_negative_stock, costing_method FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
       if (productResult.rows.length === 0) {
         throw createError(`Product ${item.product_id} not found`, 404);
       }
       const product = productResult.rows[0];
+      const avgCost = parseFloat(product.avg_cost) || 0;
 
-      const costPrice = parseFloat(product.avg_cost) || item.cost_price || 0;
+      const costPrice = product.costing_method === 'fifo'
+        ? await consumeFifoBatches(client, item.product_id, item.quantity, avgCost)
+        : (avgCost || item.cost_price || 0);
+
+      // Clamp per-unit discount to the unit price — stacked promotions or a
+      // manual override must never push a line's taxable amount negative.
+      const clampedItemDiscount = Math.min(item.item_discount, item.unit_price);
       const lineSubtotal = round2(item.unit_price * item.quantity);
-      const lineDiscount = round2(item.item_discount * item.quantity);
+      const lineDiscount = round2(clampedItemDiscount * item.quantity);
       const taxableAmount = lineSubtotal - lineDiscount;
       const lineTax = round2((taxableAmount * item.tax_rate) / 100);
       const lineTotal = round2(taxableAmount + lineTax);
@@ -62,16 +72,39 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
       taxTotal += lineTax;
       costTotal += round2(costPrice * item.quantity);
 
+      // Stock mutation, under the lock already held above.
+      const balanceBefore = parseFloat(product.current_stock);
+      const balanceAfter = round3(balanceBefore - item.quantity);
+
+      if (!product.allow_negative_stock && balanceAfter < 0) {
+        throw createError(
+          `Not enough stock for "${item.product_name}" (available: ${balanceBefore}, requested: ${item.quantity})`,
+          400
+        );
+      }
+
+      await client.query(
+        'UPDATE products SET current_stock = $1, updated_at = NOW() WHERE id = $2',
+        [balanceAfter, item.product_id]
+      );
+
       processedItems.push({
         ...item,
+        item_discount: clampedItemDiscount,
         cost_price: costPrice,
         line_subtotal: lineTotal,
+        line_tax: lineTax,
+        balance_before: balanceBefore,
+        balance_after: balanceAfter,
       });
     }
 
-    const billDiscountAmount = round2(data.bill_discount || 0);
+    // Bill discount can never exceed what's left after item-level discounts —
+    // otherwise the total goes negative and "change" gets fabricated from nothing.
+    const maxBillDiscount = Math.max(0, round2(subtotal - itemDiscountTotal));
+    const billDiscountAmount = Math.min(round2(data.bill_discount || 0), maxBillDiscount);
     const discountTotal = round2(itemDiscountTotal + billDiscountAmount);
-    const totalAmount = round2(subtotal - discountTotal + taxTotal);
+    const totalAmount = Math.max(0, round2(subtotal - discountTotal + taxTotal));
     const profit = round2(totalAmount - costTotal);
     const changeAmount = round2(
       data.payment_method === 'cash'
@@ -123,7 +156,8 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
       );
     }
 
-    // Insert sale items and update stock
+    // Insert sale items and stock movements — everything was already determined
+    // and locked/mutated in the pass above, so no product re-query here.
     for (const item of processedItems) {
       await client.query(
         `INSERT INTO sale_items (
@@ -134,31 +168,16 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
         [
           sale.id, item.product_id, item.product_name, item.barcode || null, item.quantity,
           item.unit_price, item.original_price, item.cost_price, item.item_discount || 0,
-          item.tax_rate || 0, round2(((item.unit_price - item.item_discount) * item.quantity * item.tax_rate) / 100),
+          item.tax_rate || 0, item.line_tax,
           item.line_subtotal, item.promotion_id || null,
         ]
       );
 
-      // Get balance before
-      const stockResult = await client.query(
-        'SELECT current_stock FROM products WHERE id = $1 FOR UPDATE',
-        [item.product_id]
-      );
-      const balanceBefore = parseFloat(stockResult.rows[0].current_stock);
-      const balanceAfter = round3(balanceBefore - item.quantity);
-
-      // Update stock (allow negative)
-      await client.query(
-        'UPDATE products SET current_stock = $1, updated_at = NOW() WHERE id = $2',
-        [balanceAfter, item.product_id]
-      );
-
-      // Stock movement record
       await client.query(
         `INSERT INTO stock_movements
            (product_id, movement_type, quantity, balance_before, balance_after, unit_cost, reference_type, reference_id, created_by)
          VALUES ($1,'sale_out',$2,$3,$4,$5,'sale',$6,$7)`,
-        [item.product_id, item.quantity, balanceBefore, balanceAfter, item.cost_price, sale.id, cashierId]
+        [item.product_id, item.quantity, item.balance_before, item.balance_after, item.cost_price, sale.id, cashierId]
       );
     }
 
@@ -281,7 +300,7 @@ export const voidSale = async (id: number, reason: string, userId: number): Prom
     const items = await client.query('SELECT * FROM sale_items WHERE sale_id = $1', [id]);
     for (const item of items.rows) {
       const stockResult = await client.query(
-        'SELECT current_stock FROM products WHERE id = $1 FOR UPDATE',
+        'SELECT current_stock, costing_method FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
       const balanceBefore = parseFloat(stockResult.rows[0].current_stock);
@@ -292,6 +311,16 @@ export const voidSale = async (id: number, reason: string, userId: number): Prom
         [balanceAfter, item.product_id]
       );
 
+      // FIFO doesn't try to reverse into the exact original batch — restored
+      // stock re-enters as a new batch, at the sale's recorded cost, dated now.
+      if (stockResult.rows[0].costing_method === 'fifo') {
+        await addBatch(client, {
+          productId: item.product_id,
+          quantity: parseFloat(item.quantity),
+          unitCost: parseFloat(item.cost_price),
+        });
+      }
+
       await client.query(
         `INSERT INTO stock_movements
            (product_id, movement_type, quantity, balance_before, balance_after, reference_type, reference_id, created_by)
@@ -300,13 +329,21 @@ export const voidSale = async (id: number, reason: string, userId: number): Prom
       );
     }
 
-    // Update shift totals (reverse)
+    // Update shift totals (reverse) — mirror the increment logic in createSale
+    const voidedCashPortion = (sale.payment_method === 'cash' || sale.payment_method === 'mixed')
+      ? round2(parseFloat(sale.cash_tendered) - parseFloat(sale.change_amount))
+      : 0;
+    const voidedCardPortion = (sale.payment_method === 'card' || sale.payment_method === 'mixed')
+      ? parseFloat(sale.card_amount)
+      : 0;
     await client.query(
       `UPDATE shifts SET
          total_sales = total_sales - $1,
+         total_cash_sales = total_cash_sales - $2,
+         total_card_sales = total_card_sales - $3,
          total_transactions = total_transactions - 1
-       WHERE id = $2`,
-      [sale.total_amount, sale.shift_id]
+       WHERE id = $4`,
+      [sale.total_amount, voidedCashPortion, voidedCardPortion, sale.shift_id]
     );
 
     // Reverse the customer's outstanding balance for a voided credit sale
@@ -419,7 +456,7 @@ export const returnSaleItems = async (
       );
 
       const productResult = await client.query(
-        'SELECT current_stock, avg_cost FROM products WHERE id = $1 FOR UPDATE',
+        'SELECT current_stock, avg_cost, costing_method FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
       const product = productResult.rows[0];
@@ -427,12 +464,24 @@ export const returnSaleItems = async (
       const currentAvgCost = parseFloat(product.avg_cost);
       const balanceBefore = currentStock;
       const balanceAfter = round3(currentStock + item.quantity);
+      // Kept as a live blend for every product regardless of costing method —
+      // same reference/fallback-cost role it plays for GRN receipts.
       const newAvgCost = calculateWeightedAvgCost(currentStock, currentAvgCost, item.quantity, item.cost_price);
 
       await client.query(
         'UPDATE products SET current_stock = $1, avg_cost = $2, updated_at = NOW() WHERE id = $3',
         [balanceAfter, newAvgCost, item.product_id]
       );
+
+      // FIFO doesn't try to reverse into the exact original batch — restored
+      // stock re-enters as a new batch, at the sale's recorded cost, dated now.
+      if (product.costing_method === 'fifo') {
+        await addBatch(client, {
+          productId: item.product_id,
+          quantity: item.quantity,
+          unitCost: item.cost_price,
+        });
+      }
 
       await client.query(
         `INSERT INTO stock_movements (product_id, movement_type, quantity, balance_before, balance_after, unit_cost, reference_type, reference_id, created_by)
@@ -463,10 +512,16 @@ export const returnSaleItems = async (
       [allFullyReturned ? 'refunded' : 'completed', saleId]
     );
 
-    // Deduct from shift totals
+    // Deduct from shift totals — also reverse the cash/card portion matching how it was refunded
+    const refundedCashPortion = data.refund_method === 'cash' ? totalRefundAmount : 0;
+    const refundedCardPortion = data.refund_method === 'card' ? totalRefundAmount : 0;
     await client.query(
-      'UPDATE shifts SET total_sales = total_sales - $1 WHERE id = $2',
-      [totalRefundAmount, shiftId]
+      `UPDATE shifts SET
+         total_sales = total_sales - $1,
+         total_cash_sales = total_cash_sales - $2,
+         total_card_sales = total_card_sales - $3
+       WHERE id = $4`,
+      [totalRefundAmount, refundedCashPortion, refundedCardPortion, shiftId]
     );
 
     // Returning items from a credit sale reduces what the customer owes

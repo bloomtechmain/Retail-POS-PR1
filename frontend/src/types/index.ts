@@ -48,8 +48,22 @@ export interface Product {
   image_url?: string;
   is_active: boolean;
   allow_negative_stock: boolean;
+  costing_method?: 'weighted_average' | 'fifo' | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProductBatch {
+  id: number;
+  product_id: number;
+  grn_item_id?: number;
+  batch_number: string;
+  quantity_received: number;
+  quantity_remaining: number;
+  unit_cost: number;
+  expiry_date?: string;
+  received_date: string;
+  created_at: string;
 }
 
 export interface Category {
@@ -224,6 +238,9 @@ export interface GRNItem {
   quantity: number;
   buying_price: number;
   subtotal?: number;
+  // Only sent on create, when the product's costing method isn't set yet / is FIFO
+  costing_method?: 'weighted_average' | 'fifo';
+  expiry_date?: string;
 }
 
 export interface Promotion {

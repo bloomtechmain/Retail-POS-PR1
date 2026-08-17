@@ -167,8 +167,20 @@ export const getCustomerStatement = async (customerId: number) => {
     [customerId]
   );
 
+  // Returns against this customer's credit sales reduce what they owe — must be
+  // in the ledger too, or the computed running balance drifts from the
+  // authoritative customers.current_balance (which IS correctly adjusted on return).
+  const returnsResult = await query(
+    `SELECT sr.id, sr.return_number, sr.total_refund_amount, sr.created_at
+     FROM sale_returns sr
+     JOIN sales s ON sr.sale_id = s.id
+     WHERE s.customer_id = $1 AND s.payment_method = 'credit'
+     ORDER BY sr.created_at ASC`,
+    [customerId]
+  );
+
   type LedgerEntry = {
-    type: 'sale' | 'payment';
+    type: 'sale' | 'payment' | 'return';
     id: number;
     reference: string;
     amount: number;
@@ -189,6 +201,13 @@ export const getCustomerStatement = async (customerId: number) => {
       reference: p.notes || `Payment (${p.payment_method})${p.received_by_name ? ' — ' + p.received_by_name : ''}`,
       amount: -round2(Number(p.amount)),
       created_at: p.created_at,
+    })),
+    ...returnsResult.rows.map((r: any) => ({
+      type: 'return' as const,
+      id: r.id,
+      reference: `Return ${r.return_number}`,
+      amount: -round2(Number(r.total_refund_amount)),
+      created_at: r.created_at,
     })),
   ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
