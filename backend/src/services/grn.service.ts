@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateGRNNumber, generateReturnNumber, calculateWeightedAvgCost, round2 } from '../utils/helpers';
+import { generateGRNNumber, generateReturnNumber, calculateWeightedAvgCost, round2, round3 } from '../utils/helpers';
 import { GRN, GRNItem } from '../types';
 
 export const getGRNs = async (params: { page?: number; limit?: number; search?: string }) => {
@@ -121,7 +121,7 @@ export const createGRN = async (
       const currentStock = parseFloat(product.current_stock);
       const currentAvgCost = parseFloat(product.avg_cost);
       const balanceBefore = currentStock;
-      const balanceAfter = round2(currentStock + item.quantity);
+      const balanceAfter = round3(currentStock + item.quantity);
 
       // Calculate new weighted average cost
       const newAvgCost = calculateWeightedAvgCost(
@@ -202,8 +202,8 @@ export const createGRNReturn = async (
         'SELECT current_stock FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
-      const balanceBefore = round2(Number(prodResult.rows[0].current_stock));
-      const balanceAfter  = round2(balanceBefore - item.quantity);
+      const balanceBefore = round3(Number(prodResult.rows[0].current_stock));
+      const balanceAfter  = round3(balanceBefore - item.quantity);
 
       await client.query(
         'UPDATE products SET current_stock = $1, updated_at = NOW() WHERE id = $2',

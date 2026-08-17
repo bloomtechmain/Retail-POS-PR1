@@ -8,6 +8,7 @@ import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { UNIT_PRESETS, getUnitMeta, formatQuantity } from '../utils/units';
 
 const EMPTY: Partial<Product> = {
   name: '', name_en: '', barcode: '', sku: '', selling_price: 0, cost_price: 0,
@@ -28,6 +29,7 @@ export default function Products() {
   const [editProduct, setEditProduct] = useState<Partial<Product>>(EMPTY);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [customUnit, setCustomUnit] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,10 +49,19 @@ export default function Products() {
     api.get('/products/brands').then(r => setBrands(r.data.data));
   }, []);
 
-  const openCreate = () => { setEditProduct(EMPTY); setIsEditing(false); setModalOpen(true); };
-  const openEdit = (p: Product) => { setEditProduct({ ...p }); setIsEditing(true); setModalOpen(true); };
+  const openCreate = () => { setEditProduct(EMPTY); setIsEditing(false); setCustomUnit(false); setModalOpen(true); };
+  const openEdit = (p: Product) => {
+    setEditProduct({ ...p });
+    setIsEditing(true);
+    setCustomUnit(!!p.unit_type && !UNIT_PRESETS.some(u => u.value === p.unit_type));
+    setModalOpen(true);
+  };
 
   const handleSave = async () => {
+    if (customUnit && !editProduct.unit_type?.trim()) {
+      toast.error('Enter a custom unit name');
+      return;
+    }
     setSaving(true);
     try {
       if (isEditing) {
@@ -142,7 +153,7 @@ export default function Products() {
                         p.current_stock <= 0 ? 'badge-red' :
                         p.current_stock <= p.low_stock_level ? 'badge-yellow' : 'badge-green'
                       }`}>
-                        {Number(p.current_stock).toFixed(p.unit_type === 'kg' ? 3 : 0)}
+                        {formatQuantity(p.current_stock, p.unit_type)}
                       </span>
                     </td>
                     <td>
@@ -236,18 +247,42 @@ export default function Products() {
           </div>
           <div>
             <label className="label">{t.products_unit_type}</label>
-            <select className="input" value={editProduct.unit_type || 'piece'} onChange={(e) => setEditProduct(p => ({ ...p, unit_type: e.target.value }))}>
-              <option value="piece">{t.products_unit_piece}</option>
-              <option value="kg">{t.products_unit_kg}</option>
-              <option value="litre">{t.products_unit_litre}</option>
-              <option value="box">{t.products_unit_box}</option>
-              <option value="pack">{t.products_unit_pack}</option>
-              <option value="dozen">{t.products_unit_dozen}</option>
+            <select
+              className="input"
+              value={customUnit ? 'CUSTOM' : (editProduct.unit_type || 'piece')}
+              onChange={(e) => {
+                if (e.target.value === 'CUSTOM') {
+                  setCustomUnit(true);
+                  setEditProduct(p => ({ ...p, unit_type: '' }));
+                } else {
+                  setCustomUnit(false);
+                  setEditProduct(p => ({ ...p, unit_type: e.target.value }));
+                }
+              }}
+            >
+              {UNIT_PRESETS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+              <option value="CUSTOM">Custom...</option>
             </select>
+            {customUnit && (
+              <input
+                type="text"
+                className="input mt-2"
+                placeholder="e.g. roll, sheet, bag"
+                value={editProduct.unit_type || ''}
+                onChange={(e) => setEditProduct(p => ({ ...p, unit_type: e.target.value }))}
+              />
+            )}
           </div>
           <div>
-            <label className="label">{t.products_opening_stock}</label>
-            <input type="number" className="input" value={editProduct.current_stock || ''} onChange={(e) => setEditProduct(p => ({ ...p, current_stock: parseFloat(e.target.value) || 0 }))} min="0" step="0.001" />
+            <label className="label">{t.products_opening_stock} ({getUnitMeta(editProduct.unit_type).abbr})</label>
+            <input
+              type="number"
+              className="input"
+              value={editProduct.current_stock || ''}
+              onChange={(e) => setEditProduct(p => ({ ...p, current_stock: parseFloat(e.target.value) || 0 }))}
+              min="0"
+              step={getUnitMeta(editProduct.unit_type).step}
+            />
           </div>
           <div>
             <label className="label">{t.products_low_stock_alert}</label>

@@ -36,6 +36,12 @@ export const round2 = (value: number): number => {
   return Math.round(value * 100) / 100;
 };
 
+// Matches the DECIMAL(12,3) precision used for stock quantity/balance columns —
+// round2 would silently truncate gram/millilitre-level precision.
+export const round3 = (value: number): number => {
+  return Math.round(value * 1000) / 1000;
+};
+
 export const calculateWeightedAvgCost = (
   currentStock: number,
   currentAvgCost: number,

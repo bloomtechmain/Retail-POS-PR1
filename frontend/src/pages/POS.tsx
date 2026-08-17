@@ -10,6 +10,7 @@ import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { useSettingsStore } from '../store/settingsStore';
+import { getUnitMeta, formatQuantity } from '../utils/units';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -644,7 +645,7 @@ function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
               <div className="text-right shrink-0">
                 <p className="text-sm font-bold text-primary-600">{fmt(p.selling_price)}</p>
                 <p className={`text-xs ${p.current_stock <= 0 ? 'text-red-500' : p.current_stock <= p.low_stock_level ? 'text-amber-500' : 'text-emerald-600'}`}>
-                  {t.pos_stock} {Number(p.current_stock).toFixed(p.unit_type === 'kg' ? 2 : 0)}
+                  {t.pos_stock} {formatQuantity(p.current_stock, p.unit_type)}
                 </p>
               </div>
             </button>
@@ -867,11 +868,17 @@ export default function POS() {
                   <p className="min-w-0 max-w-[38%] text-sm font-semibold text-surface-900 truncate shrink-0">{item.product_name}</p>
 
                   {/* Qty controls */}
-                  <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
-                    <button onClick={() => pos.updateQty(item.product_id, item.quantity - 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
-                    <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-sm font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step="1" />
-                    <button onClick={() => pos.updateQty(item.product_id, item.quantity + 1)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
-                  </div>
+                  {(() => {
+                    const unitMeta = getUnitMeta(item.unit_type);
+                    return (
+                      <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
+                        <button onClick={() => pos.updateQty(item.product_id, item.quantity - unitMeta.step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
+                        <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-sm font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step={unitMeta.step} />
+                        <button onClick={() => pos.updateQty(item.product_id, item.quantity + unitMeta.step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
+                      </div>
+                    );
+                  })()}
+                  <span className="text-[10px] text-surface-400 shrink-0 -ml-1.5">{getUnitMeta(item.unit_type).abbr}</span>
 
                   {/* Unit price */}
                   {canOverridePrice ? (

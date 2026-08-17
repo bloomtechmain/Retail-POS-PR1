@@ -136,7 +136,7 @@ export const getProductSalesReport = async (params: { date_from: string; date_to
 export const getInventoryReport = async () => {
   const result = await query(
     `SELECT
-       p.id, p.name, p.sku, p.barcode,
+       p.id, p.name, p.sku, p.barcode, p.unit_type,
        c.name as category_name,
        p.current_stock, p.low_stock_level, p.avg_cost, p.selling_price,
        p.current_stock * p.avg_cost as stock_value,

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { CartItem, Product } from '../types';
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+// Matches the backend's DECIMAL(12,3) stock precision — round2 would truncate gram/ml-level quantities
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
 interface POSStore {
   cart: CartItem[];
@@ -77,7 +79,8 @@ export const usePOSStore = create<POSStore>((set, get) => ({
         product_name: product.name,
         barcode: product.barcode,
         sku: product.sku,
-        quantity: qty,
+        unit_type: product.unit_type,
+        quantity: round3(qty),
         unit_price: round2(product.selling_price),
         original_price: round2(product.selling_price),
         cost_price: round2(product.avg_cost || product.cost_price),
@@ -89,7 +92,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       const updatedCart = existing
         ? state.cart.map((i) =>
             i.product_id === product.id
-              ? { ...i, quantity: round2(i.quantity + qty) }
+              ? { ...i, quantity: round3(i.quantity + qty) }
               : i
           )
         : [...state.cart, newItem];
@@ -101,7 +104,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
         updatedPrePromoCart = existingPre
           ? updatedPrePromoCart.map((i) =>
               i.product_id === product.id
-                ? { ...i, quantity: round2(i.quantity + qty) }
+                ? { ...i, quantity: round3(i.quantity + qty) }
                 : i
             )
           : [...updatedPrePromoCart, newItem];
@@ -127,11 +130,11 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     }
     set((state) => ({
       cart: state.cart.map((i) =>
-        i.product_id === productId ? { ...i, quantity: round2(qty) } : i
+        i.product_id === productId ? { ...i, quantity: round3(qty) } : i
       ),
       prePromoCart: state.prePromoCart
         ? state.prePromoCart.map((i) =>
-            i.product_id === productId ? { ...i, quantity: round2(qty) } : i
+            i.product_id === productId ? { ...i, quantity: round3(qty) } : i
           )
         : null,
     }));
