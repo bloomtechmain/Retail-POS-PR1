@@ -8,7 +8,7 @@ import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
-import { getUnitMeta, formatQuantity } from '../utils/units';
+import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit } from '../utils/units';
 
 export default function GRNPage() {
   const t = useT();
@@ -32,9 +32,9 @@ export default function GRNPage() {
     notes: '',
   });
   const [items, setItems] = useState<Array<{
-    product_id: string; quantity: string; buying_price: string; expiry_date: string;
+    product_id: string; quantity: string; buying_price: string; expiry_date: string; receive_unit: string;
   }>>([
-    { product_id: '', quantity: '', buying_price: '', expiry_date: '' }
+    { product_id: '', quantity: '', buying_price: '', expiry_date: '', receive_unit: '' }
   ]);
 
   const load = useCallback(async () => {
@@ -59,19 +59,26 @@ export default function GRNPage() {
   const getProductCostingMethod = (productId: string | number) =>
     products.find(p => p.id === Number(productId))?.costing_method;
 
-  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '', expiry_date: '' }]);
+  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '', expiry_date: '', receive_unit: '' }]);
   const removeItem = (idx: number) => setItems(i => i.filter((_, j) => j !== idx));
   const updateItem = (idx: number, field: string, value: string) => {
     setItems(items.map((item, j) => {
       if (j !== idx) return item;
-      // Switching products resets any expiry choice made for the previous one
-      if (field === 'product_id') return { ...item, product_id: value, expiry_date: '' };
+      // Switching products resets any expiry choice and defaults the receive
+      // unit back to that product's own base unit
+      if (field === 'product_id') return { ...item, product_id: value, expiry_date: '', receive_unit: getProductUnit(value) || '' };
       return { ...item, [field]: value };
     }));
   };
 
+  // Quantity entered against a line, converted from whatever unit was picked
+  // for that receipt (e.g. grams) into the product's own base unit (e.g. kg)
+  // — everything downstream (subtotal, totals, the GRN payload) uses this.
+  const getItemBaseQty = (item: typeof items[number]) =>
+    convertToBaseUnit(parseFloat(item.quantity) || 0, item.receive_unit, getProductUnit(item.product_id));
+
   const totalAmount = items.reduce((sum, i) => {
-    return sum + (parseFloat(i.quantity) || 0) * (parseFloat(i.buying_price) || 0);
+    return sum + getItemBaseQty(i) * (parseFloat(i.buying_price) || 0);
   }, 0);
 
   const handleCreate = async () => {
@@ -85,7 +92,7 @@ export default function GRNPage() {
         supplier_id: form.supplier_id ? parseInt(form.supplier_id) : undefined,
         items: validItems.map(i => ({
           product_id: parseInt(i.product_id),
-          quantity: parseFloat(i.quantity),
+          quantity: getItemBaseQty(i),
           buying_price: parseFloat(i.buying_price),
           expiry_date: getProductCostingMethod(i.product_id) === 'fifo' ? (i.expiry_date || undefined) : undefined,
         })),
@@ -241,6 +248,10 @@ export default function GRNPage() {
               <tbody>
                 {items.map((item, idx) => {
                   const showExpiry = getProductCostingMethod(item.product_id) === 'fifo';
+                  const unitOptions = getReceiveUnitOptions(getProductUnit(item.product_id));
+                  const receiveUnit = item.receive_unit || getProductUnit(item.product_id) || '';
+                  const receiveMeta = unitOptions.find(o => o.value === receiveUnit);
+                  const baseUnitAbbr = getUnitMeta(getProductUnit(item.product_id)).abbr;
                   return (
                     <Fragment key={idx}>
                       <tr>
@@ -252,15 +263,33 @@ export default function GRNPage() {
                         </td>
                         <td>
                           <div className="flex items-center gap-1.5">
-                            <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={getUnitMeta(getProductUnit(item.product_id)).step} />
-                            {item.product_id && <span className="text-xs text-surface-400 shrink-0">{getUnitMeta(getProductUnit(item.product_id)).abbr}</span>}
+                            <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={receiveMeta?.step ?? getUnitMeta(getProductUnit(item.product_id)).step} />
+                            {item.product_id && (
+                              unitOptions.length > 1 ? (
+                                <select
+                                  className="input py-1 text-xs w-auto shrink-0"
+                                  value={receiveUnit}
+                                  onChange={(e) => updateItem(idx, 'receive_unit', e.target.value)}
+                                >
+                                  {unitOptions.map(o => <option key={o.value} value={o.value}>{o.abbr}</option>)}
+                                </select>
+                              ) : (
+                                <span className="text-xs text-surface-400 shrink-0">{baseUnitAbbr}</span>
+                              )
+                            )}
                           </div>
+                          {item.product_id && receiveUnit !== getProductUnit(item.product_id) && item.quantity && (
+                            <div className="text-xs text-surface-400 mt-0.5">
+                              = {formatQuantity(getItemBaseQty(item), getProductUnit(item.product_id))}
+                            </div>
+                          )}
                         </td>
                         <td>
                           <input type="number" className="input py-1.5 text-sm font-mono" value={item.buying_price} onChange={(e) => updateItem(idx, 'buying_price', e.target.value)} placeholder="0.00" min="0" step="0.0001" />
+                          {item.product_id && <div className="text-xs text-surface-400 mt-0.5">per {baseUnitAbbr}</div>}
                         </td>
                         <td className="text-right font-mono font-semibold">
-                          {fmt((parseFloat(item.quantity) || 0) * (parseFloat(item.buying_price) || 0))}
+                          {fmt(getItemBaseQty(item) * (parseFloat(item.buying_price) || 0))}
                         </td>
                         <td>
                           <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600">

@@ -10,7 +10,7 @@ import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { useSettingsStore } from '../store/settingsStore';
-import { getUnitMeta, formatQuantity } from '../utils/units';
+import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit, convertFromBaseUnit } from '../utils/units';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -674,6 +674,10 @@ export default function POS() {
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
   const [isReturnOpen, setIsReturnOpen] = useState(false);
   const [mobileView, setMobileView] = useState<'cart' | 'bill'>('cart');
+  // Which unit each cart row's quantity is currently being entered/shown in
+  // (e.g. a kg-tracked product switched to grams for one line) — purely a
+  // display/entry convenience; the cart itself always stores base-unit qty.
+  const [displayUnits, setDisplayUnits] = useState<Record<number, string>>({});
 
   // Check active shift
   useEffect(() => {
@@ -697,7 +701,7 @@ export default function POS() {
     const h = (e: KeyboardEvent) => {
       if (e.key === 'F10') { e.preventDefault(); if (pos.cart.length > 0) setIsPaymentOpen(true); }
       if (e.key === 'Escape') setIsPaymentOpen(false);
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') { e.preventDefault(); if (pos.cart.length > 0 && confirm('Clear the cart?')) pos.clearCart(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') { e.preventDefault(); if (pos.cart.length > 0 && confirm('Clear the cart?')) { pos.clearCart(); setDisplayUnits({}); } }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
@@ -720,6 +724,7 @@ export default function POS() {
       setCompletedSale(detail.data.data);
       setIsPaymentOpen(false);
       pos.clearCart();
+      setDisplayUnits({});
       setMobileView('cart');
       toast.success(`Sale ${r.data.data.sale_number} completed`);
     } catch (err) {
@@ -869,16 +874,34 @@ export default function POS() {
 
                   {/* Qty controls */}
                   {(() => {
-                    const unitMeta = getUnitMeta(item.unit_type);
+                    const unitOptions = getReceiveUnitOptions(item.unit_type);
+                    const displayUnit = displayUnits[item.product_id] || item.unit_type || '';
+                    const displayMeta = unitOptions.find((o) => o.value === displayUnit);
+                    const step = displayMeta?.step ?? getUnitMeta(item.unit_type).step;
+                    const displayQty = convertFromBaseUnit(item.quantity, displayUnit, item.unit_type);
+                    const setDisplayQty = (qty: number) =>
+                      pos.updateQty(item.product_id, convertToBaseUnit(qty, displayUnit, item.unit_type));
                     return (
-                      <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
-                        <button onClick={() => pos.updateQty(item.product_id, item.quantity - unitMeta.step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
-                        <input type="number" value={item.quantity} onChange={(e) => pos.updateQty(item.product_id, parseFloat(e.target.value) || 0)} className="w-9 text-center text-sm font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step={unitMeta.step} />
-                        <button onClick={() => pos.updateQty(item.product_id, item.quantity + unitMeta.step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
-                      </div>
+                      <>
+                        <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
+                          <button onClick={() => setDisplayQty(displayQty - step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
+                          <input type="number" value={displayQty} onChange={(e) => setDisplayQty(parseFloat(e.target.value) || 0)} className="w-9 text-center text-sm font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step={step} />
+                          <button onClick={() => setDisplayQty(displayQty + step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
+                        </div>
+                        {unitOptions.length > 1 ? (
+                          <select
+                            className="input py-0 h-7 text-[11px] w-auto shrink-0 -ml-1.5"
+                            value={displayUnit}
+                            onChange={(e) => setDisplayUnits((prev) => ({ ...prev, [item.product_id]: e.target.value }))}
+                          >
+                            {unitOptions.map((o) => <option key={o.value} value={o.value}>{o.abbr}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-[10px] text-surface-400 shrink-0 -ml-1.5">{getUnitMeta(item.unit_type).abbr}</span>
+                        )}
+                      </>
                     );
                   })()}
-                  <span className="text-[10px] text-surface-400 shrink-0 -ml-1.5">{getUnitMeta(item.unit_type).abbr}</span>
 
                   {/* Unit price */}
                   {canOverridePrice ? (
@@ -897,7 +920,7 @@ export default function POS() {
                   <p className="text-sm font-black text-surface-900 font-mono shrink-0">{fmt((item.unit_price - item.item_discount) * item.quantity)}</p>
 
                   {/* Remove */}
-                  <button onClick={() => pos.removeItem(item.product_id)} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
+                  <button onClick={() => { pos.removeItem(item.product_id); setDisplayUnits((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; }); }} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -952,7 +975,7 @@ export default function POS() {
                 Bill
               </button>
               <button
-                onClick={() => pos.clearCart()}
+                onClick={() => { pos.clearCart(); setDisplayUnits({}); }}
                 className="text-sm text-red-400 hover:text-red-600 font-semibold transition-colors"
               >
                 {t.pos_clear_cart}
