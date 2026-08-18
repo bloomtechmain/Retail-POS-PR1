@@ -20,6 +20,7 @@ export const updateSettings = async (
     email: string;
     currency_code: string;
     currency_symbol: string;
+    vat_registration_number: string;
   }>
 ): Promise<Settings> => {
   const existing = await getSettings();
@@ -27,7 +28,8 @@ export const updateSettings = async (
   const result = await query(
     `UPDATE settings SET
        business_name = $1, business_type = $2, logo_data_url = $3, address = $4,
-       phone = $5, email = $6, currency_code = $7, currency_symbol = $8, updated_at = NOW()
+       phone = $5, email = $6, currency_code = $7, currency_symbol = $8,
+       vat_registration_number = $9, updated_at = NOW()
      WHERE id = 1 RETURNING *`,
     [
       data.business_name?.trim() || existing.business_name,
@@ -38,6 +40,7 @@ export const updateSettings = async (
       data.email ?? existing.email,
       data.currency_code?.trim() || existing.currency_code,
       data.currency_symbol?.trim() || existing.currency_symbol,
+      data.vat_registration_number ?? existing.vat_registration_number,
     ]
   );
   return result.rows[0];

@@ -119,6 +119,53 @@ export const runMigrations = async (): Promise<void> => {
       )`,
       `INSERT INTO settings (id, business_name, currency_code, currency_symbol, setup_completed)
        VALUES (1, 'My Business', 'USD', '$', FALSE) ON CONFLICT (id) DO NOTHING`,
+      `ALTER TABLE products ADD COLUMN IF NOT EXISTS costing_method VARCHAR(20)`,
+      `CREATE TABLE IF NOT EXISTS product_batches (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        grn_item_id INTEGER REFERENCES grn_items(id),
+        batch_number VARCHAR(100) NOT NULL,
+        quantity_received DECIMAL(12,3) NOT NULL,
+        quantity_remaining DECIMAL(12,3) NOT NULL,
+        unit_cost DECIMAL(12,4) NOT NULL,
+        expiry_date DATE,
+        received_date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id)`,
+      `CREATE TABLE IF NOT EXISTS tax_rates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        rate DECIMAL(5,2) NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_vat_invoice BOOLEAN NOT NULL DEFAULT FALSE`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS vat_invoice_number VARCHAR(50)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_vat_reg_no VARCHAR(100)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_address TEXT`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_phone VARCHAR(50)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS delivery_date DATE`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(255)`,
+      `CREATE TABLE IF NOT EXISTS sale_item_taxes (
+        id SERIAL PRIMARY KEY,
+        sale_item_id INTEGER NOT NULL REFERENCES sale_items(id) ON DELETE CASCADE,
+        tax_rate_id INTEGER REFERENCES tax_rates(id),
+        tax_name VARCHAR(100) NOT NULL,
+        tax_rate DECIMAL(5,2) NOT NULL,
+        tax_amount DECIMAL(12,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sale_item_taxes_item ON sale_item_taxes(sale_item_id)`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS vat_registration_number VARCHAR(100)`,
+      `CREATE TABLE IF NOT EXISTS vat_invoice_counter (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        next_number INTEGER NOT NULL DEFAULT 1,
+        CONSTRAINT vat_invoice_counter_singleton CHECK (id = 1)
+      )`,
+      `INSERT INTO vat_invoice_counter (id, next_number) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`,
     ];
     for (const sql of alterations) {
       await query(sql, []);

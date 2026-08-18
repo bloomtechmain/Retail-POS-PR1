@@ -22,7 +22,20 @@ export const getPromotions = async (activeOnly = false) => {
 
 export const getActivePromotions = () => getPromotions(true);
 
+const validatePromotionInput = (data: Partial<Promotion>) => {
+  if (data.type === 'percentage' && data.discount_value != null) {
+    const val = Number(data.discount_value);
+    if (val <= 0 || val > 100) {
+      throw createError('Percentage discount must be between 0 and 100', 400);
+    }
+  }
+  if (data.discount_value != null && Number(data.discount_value) < 0) {
+    throw createError('Discount value cannot be negative', 400);
+  }
+};
+
 export const createPromotion = async (data: Partial<Promotion>, userId: number): Promise<Promotion> => {
+  validatePromotionInput(data);
   const result = await query(
     `INSERT INTO promotions (
        name, description, type, discount_value, min_purchase_amount, min_purchase_qty,
@@ -43,6 +56,7 @@ export const createPromotion = async (data: Partial<Promotion>, userId: number):
 };
 
 export const updatePromotion = async (id: number, data: Partial<Promotion>): Promise<Promotion> => {
+  validatePromotionInput(data);
   const result = await query(
     `UPDATE promotions SET
        name=$1, description=$2, type=$3, discount_value=$4,
@@ -131,17 +145,23 @@ export const applyPromotions = async (
       }
     } else if (promo.type === 'fixed_amount' && discVal) {
       if (promo.applies_to === 'all') {
+        // A flat bill-level amount, but item_discount is a PER-UNIT value that
+        // gets multiplied by quantity downstream — divide by this item's
+        // quantity first so the flat amount doesn't get multiplied out.
         if (updatedItems.length > 0) {
-          updatedItems[0].item_discount = round2((Number(updatedItems[0].item_discount) || 0) + discVal);
-          updatedItems[0].promotion_id = promo.id;
-          applied.push(`${promo.name}: -LKR ${discVal}`);
+          const target = updatedItems[0];
+          const qty = Number(target.quantity) || 1;
+          const perUnitDiscount = round2(discVal / qty);
+          target.item_discount = round2((Number(target.item_discount) || 0) + perUnitDiscount);
+          target.promotion_id = promo.id;
+          applied.push(`${promo.name}: -${discVal}`);
         }
       } else if (promo.applies_to === 'product' && promo.product_id) {
         const target = updatedItems.find((i) => Number(i.product_id) === Number(promo.product_id));
         if (target) {
           target.item_discount = round2((Number(target.item_discount) || 0) + discVal);
           target.promotion_id = promo.id;
-          applied.push(`${promo.name}: -LKR ${discVal}`);
+          applied.push(`${promo.name}: -${discVal}`);
         }
       } else if (promo.applies_to === 'category' && promo.category_id) {
         const targets = updatedItems.filter(
@@ -152,9 +172,18 @@ export const applyPromotions = async (
             target.item_discount = round2((Number(target.item_discount) || 0) + discVal);
             target.promotion_id = promo.id;
           }
-          applied.push(`${promo.name}: -LKR ${discVal} on ${promo.category_name}`);
+          applied.push(`${promo.name}: -${discVal} on ${promo.category_name}`);
         }
       }
+    }
+  }
+
+  // Defensive final clamp: cumulative per-unit discount (from stacked promotions
+  // or manual overrides) must never exceed the unit price, or the line total
+  // (and downstream tax) goes negative.
+  for (const item of updatedItems) {
+    if (Number(item.item_discount) > Number(item.unit_price)) {
+      item.item_discount = round2(Number(item.unit_price));
     }
   }
 

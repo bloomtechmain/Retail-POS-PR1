@@ -16,10 +16,29 @@ import Users from './pages/Users';
 import Customers from './pages/Customers';
 import Setup from './pages/Setup';
 import SettingsPage from './pages/Settings';
+import VatInvoice from './pages/VatInvoice';
 
 export default function App() {
   useEffect(() => {
     useSettingsStore.getState().fetchSettings();
+  }, []);
+
+  // Chrome/Edge change a focused <input type="number">'s value when the
+  // mouse wheel scrolls over it (even just scrolling the page past it) —
+  // silently nudging amounts like cash tendered by a step or two with no
+  // visual cue. preventDefault blocks the value change outright (must be a
+  // non-passive listener for that to have any effect); blur is a backup so
+  // a stray tick can't nudge it again before the user notices.
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement && el.type === 'number' && el === e.target) {
+        e.preventDefault();
+        el.blur();
+      }
+    };
+    document.addEventListener('wheel', handler, { passive: false });
+    return () => document.removeEventListener('wheel', handler);
   }, []);
 
   return (
@@ -31,6 +50,7 @@ export default function App() {
         {/* Protected — All Roles */}
         <Route element={<ProtectedRoute />}>
           <Route path="/pos" element={<POS />} />
+          <Route path="/vat-invoice" element={<VatInvoice />} />
           <Route path="/shifts" element={<Shifts />} />
         </Route>
 

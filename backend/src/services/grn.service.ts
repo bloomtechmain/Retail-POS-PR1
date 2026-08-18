@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateGRNNumber, generateReturnNumber, calculateWeightedAvgCost, round2, round3 } from '../utils/helpers';
+import { generateGRNNumber, generateReturnNumber, calculateWeightedAvgCost, round2, round3, addBatch } from '../utils/helpers';
 import { GRN, GRNItem } from '../types';
 
 export const getGRNs = async (params: { page?: number; limit?: number; search?: string }) => {
@@ -69,7 +69,12 @@ export const createGRN = async (
     invoice_number?: string;
     received_date: string;
     notes?: string;
-    items: Array<{ product_id: number; quantity: number; buying_price: number }>;
+    items: Array<{
+      product_id: number;
+      quantity: number;
+      buying_price: number;
+      expiry_date?: string;
+    }>;
   },
   userId: number
 ): Promise<GRN> => {
@@ -104,15 +109,16 @@ export const createGRN = async (
       const subtotal = round2(item.quantity * item.buying_price);
 
       // Insert GRN item
-      await client.query(
+      const grnItemResult = await client.query(
         `INSERT INTO grn_items (grn_id, product_id, quantity, buying_price, subtotal)
-         VALUES ($1,$2,$3,$4,$5)`,
+         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
         [grn.id, item.product_id, item.quantity, item.buying_price, subtotal]
       );
+      const grnItemId = grnItemResult.rows[0].id;
 
-      // Get current product stock and avg cost
+      // Get current product stock, avg cost, and costing method
       const productResult = await client.query(
-        'SELECT current_stock, avg_cost FROM products WHERE id = $1 FOR UPDATE',
+        'SELECT current_stock, avg_cost, costing_method FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
       if (productResult.rows.length === 0) throw createError(`Product ${item.product_id} not found`, 404);
@@ -123,7 +129,21 @@ export const createGRN = async (
       const balanceBefore = currentStock;
       const balanceAfter = round3(currentStock + item.quantity);
 
-      // Calculate new weighted average cost
+      // costing_method is chosen at product creation now. This only falls
+      // back to weighted_average for products created before that existed
+      // (legacy rows with costing_method still NULL) — never re-prompts.
+      const effectiveMethod = product.costing_method || 'weighted_average';
+      if (!product.costing_method) {
+        await client.query(
+          `UPDATE products SET costing_method = $1 WHERE id = $2 AND costing_method IS NULL`,
+          [effectiveMethod, item.product_id]
+        );
+      }
+
+      // avg_cost is kept as a live weighted-average blend for EVERY product,
+      // regardless of costing method — it's only ever read as a stock-value
+      // reporting figure and as the fallback unit cost when a FIFO product's
+      // batches run short, never for actual FIFO cost-of-goods.
       const newAvgCost = calculateWeightedAvgCost(
         currentStock,
         currentAvgCost,
@@ -138,6 +158,17 @@ export const createGRN = async (
          WHERE id = $4`,
         [balanceAfter, newAvgCost, item.buying_price, item.product_id]
       );
+
+      if (effectiveMethod === 'fifo') {
+        await addBatch(client, {
+          productId: item.product_id,
+          grnItemId,
+          quantity: item.quantity,
+          unitCost: item.buying_price,
+          expiryDate: item.expiry_date || null,
+          receivedDate: data.received_date,
+        });
+      }
 
       // Record stock movement
       await client.query(
@@ -179,8 +210,68 @@ export const createGRNReturn = async (
   userId: number
 ) => {
   return transaction(async (client: PoolClient) => {
+    // Validate each item's return quantity. For FIFO products with a batch
+    // still linked to this exact GRN line, cap by that batch's live
+    // quantity_remaining — it's a tighter, more accurate bound than the
+    // legacy check below since it already nets out anything since sold or
+    // consumed from it. Fall back to the legacy grn_items-based check
+    // (originally received minus already-GRN-returned) when no batch exists
+    // (weighted-average products, or receipts that predate this product's
+    // first FIFO choice).
+    let totalAmount = 0;
+    for (const item of items) {
+      const grnItemResult = await client.query(
+        'SELECT quantity, product_id FROM grn_items WHERE id = $1 AND grn_id = $2',
+        [item.grn_item_id, grnId]
+      );
+      if (grnItemResult.rows.length === 0) {
+        throw createError(`GRN item ${item.grn_item_id} does not belong to this GRN`, 400);
+      }
+      const originalQty = parseFloat(grnItemResult.rows[0].quantity);
+
+      // Lock the product row before any batch row, per the locking discipline.
+      await client.query('SELECT id FROM products WHERE id = $1 FOR UPDATE', [item.product_id]);
+
+      const batchResult = await client.query(
+        'SELECT id, quantity_remaining FROM product_batches WHERE grn_item_id = $1 FOR UPDATE',
+        [item.grn_item_id]
+      );
+
+      if (item.quantity <= 0) throw createError('Return quantity must be greater than 0', 400);
+
+      if (batchResult.rows.length > 0) {
+        const batch = batchResult.rows[0];
+        const remainingReturnable = round3(parseFloat(batch.quantity_remaining));
+        if (item.quantity > remainingReturnable) {
+          throw createError(
+            `Cannot return ${item.quantity} of item ${item.grn_item_id}. Max returnable: ${remainingReturnable}`,
+            400
+          );
+        }
+        await client.query(
+          'UPDATE product_batches SET quantity_remaining = quantity_remaining - $1 WHERE id = $2',
+          [item.quantity, batch.id]
+        );
+      } else {
+        const alreadyReturnedResult = await client.query(
+          'SELECT COALESCE(SUM(quantity), 0) as returned_qty FROM grn_return_items WHERE grn_item_id = $1',
+          [item.grn_item_id]
+        );
+        const alreadyReturned = parseFloat(alreadyReturnedResult.rows[0].returned_qty);
+        const remainingReturnable = round3(originalQty - alreadyReturned);
+        if (item.quantity > remainingReturnable) {
+          throw createError(
+            `Cannot return ${item.quantity} of item ${item.grn_item_id}. Max returnable: ${remainingReturnable}`,
+            400
+          );
+        }
+      }
+
+      totalAmount += round2(item.quantity * item.buying_price);
+    }
+    totalAmount = round2(totalAmount);
+
     const returnNumber = generateReturnNumber();
-    const totalAmount = round2(items.reduce((s, i) => s + i.quantity * i.buying_price, 0));
 
     const retResult = await client.query(
       `INSERT INTO grn_returns (return_number, grn_id, notes, total_amount, created_by)

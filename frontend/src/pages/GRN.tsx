@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
@@ -8,7 +8,7 @@ import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
-import { getUnitMeta, formatQuantity } from '../utils/units';
+import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit } from '../utils/units';
 
 export default function GRNPage() {
   const t = useT();
@@ -24,6 +24,9 @@ export default function GRNPage() {
   const [saving, setSaving] = useState(false);
   const [returnItems, setReturnItems] = useState<Record<number, string>>({});
   const [returnNotes, setReturnNotes] = useState('');
+  const [supplierModal, setSupplierModal] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', contact_person: '', phone: '', email: '', address: '' });
+  const [savingSupplier, setSavingSupplier] = useState(false);
 
   const [form, setForm] = useState({
     supplier_id: '',
@@ -31,8 +34,10 @@ export default function GRNPage() {
     received_date: new Date().toISOString().slice(0, 10),
     notes: '',
   });
-  const [items, setItems] = useState<Array<{ product_id: string; quantity: string; buying_price: string }>>([
-    { product_id: '', quantity: '', buying_price: '' }
+  const [items, setItems] = useState<Array<{
+    product_id: string; quantity: string; buying_price: string; expiry_date: string; receive_unit: string;
+  }>>([
+    { product_id: '', quantity: '', buying_price: '', expiry_date: '', receive_unit: '' }
   ]);
 
   const load = useCallback(async () => {
@@ -54,19 +59,35 @@ export default function GRNPage() {
   const getProductUnit = (productId: string | number) =>
     products.find(p => p.id === Number(productId))?.unit_type;
 
-  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '' }]);
+  const getProductCostingMethod = (productId: string | number) =>
+    products.find(p => p.id === Number(productId))?.costing_method;
+
+  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '', expiry_date: '', receive_unit: '' }]);
   const removeItem = (idx: number) => setItems(i => i.filter((_, j) => j !== idx));
   const updateItem = (idx: number, field: string, value: string) => {
-    setItems(items.map((item, j) => j === idx ? { ...item, [field]: value } : item));
+    setItems(items.map((item, j) => {
+      if (j !== idx) return item;
+      // Switching products resets any expiry choice and defaults the receive
+      // unit back to that product's own base unit
+      if (field === 'product_id') return { ...item, product_id: value, expiry_date: '', receive_unit: getProductUnit(value) || '' };
+      return { ...item, [field]: value };
+    }));
   };
 
+  // Quantity entered against a line, converted from whatever unit was picked
+  // for that receipt (e.g. grams) into the product's own base unit (e.g. kg)
+  // — everything downstream (subtotal, totals, the GRN payload) uses this.
+  const getItemBaseQty = (item: typeof items[number]) =>
+    convertToBaseUnit(parseFloat(item.quantity) || 0, item.receive_unit, getProductUnit(item.product_id));
+
   const totalAmount = items.reduce((sum, i) => {
-    return sum + (parseFloat(i.quantity) || 0) * (parseFloat(i.buying_price) || 0);
+    return sum + getItemBaseQty(i) * (parseFloat(i.buying_price) || 0);
   }, 0);
 
   const handleCreate = async () => {
     const validItems = items.filter(i => i.product_id && i.quantity && i.buying_price);
     if (validItems.length === 0) { toast.error('Add at least one product'); return; }
+
     setSaving(true);
     try {
       await api.post('/grn', {
@@ -74,8 +95,9 @@ export default function GRNPage() {
         supplier_id: form.supplier_id ? parseInt(form.supplier_id) : undefined,
         items: validItems.map(i => ({
           product_id: parseInt(i.product_id),
-          quantity: parseFloat(i.quantity),
+          quantity: getItemBaseQty(i),
           buying_price: parseFloat(i.buying_price),
+          expiry_date: getProductCostingMethod(i.product_id) === 'fifo' ? (i.expiry_date || undefined) : undefined,
         })),
       });
       toast.success('GRN created and stock updated');
@@ -122,6 +144,29 @@ export default function GRNPage() {
       const e = err as AxiosError<{ message: string }>;
       toast.error(e.response?.data?.message || 'Failed to process return');
     } finally { setSaving(false); }
+  };
+
+  const handleAddSupplier = async () => {
+    if (!newSupplier.name.trim()) { toast.error('Enter a supplier name'); return; }
+    setSavingSupplier(true);
+    try {
+      const r = await api.post('/grn/suppliers', {
+        name: newSupplier.name.trim(),
+        contact_person: newSupplier.contact_person || undefined,
+        phone: newSupplier.phone || undefined,
+        email: newSupplier.email || undefined,
+        address: newSupplier.address || undefined,
+      });
+      const created: Supplier = r.data.data;
+      setSuppliers((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setForm((f) => ({ ...f, supplier_id: String(created.id) }));
+      setSupplierModal(false);
+      setNewSupplier({ name: '', contact_person: '', phone: '', email: '', address: '' });
+      toast.success('Supplier added');
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Failed to add supplier');
+    } finally { setSavingSupplier(false); }
   };
 
   return (
@@ -192,10 +237,20 @@ export default function GRNPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">{t.grn_form_supplier}</label>
-              <select className="input" value={form.supplier_id} onChange={(e) => setForm(f => ({ ...f, supplier_id: e.target.value }))}>
-                <option value="">{t.grn_form_select_supplier}</option>
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              <div className="flex gap-1.5">
+                <select className="input flex-1" value={form.supplier_id} onChange={(e) => setForm(f => ({ ...f, supplier_id: e.target.value }))}>
+                  <option value="">{t.grn_form_select_supplier}</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  title="Add new supplier"
+                  onClick={() => setSupplierModal(true)}
+                  className="btn-secondary px-3 shrink-0"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <div>
               <label className="label">{t.grn_form_invoice}</label>
@@ -227,35 +282,77 @@ export default function GRNPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => (
-                  <tr key={idx}>
-                    <td>
-                      <select className="input py-1.5 text-sm" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}>
-                        <option value="">{t.grn_select_product}</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
-                        <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={getUnitMeta(getProductUnit(item.product_id)).step} />
-                        {item.product_id && <span className="text-xs text-surface-400 shrink-0">{getUnitMeta(getProductUnit(item.product_id)).abbr}</span>}
-                      </div>
-                    </td>
-                    <td>
-                      <input type="number" className="input py-1.5 text-sm font-mono" value={item.buying_price} onChange={(e) => updateItem(idx, 'buying_price', e.target.value)} placeholder="0.00" min="0" step="0.0001" />
-                    </td>
-                    <td className="text-right font-mono font-semibold">
-                      {fmt((parseFloat(item.quantity) || 0) * (parseFloat(item.buying_price) || 0))}
-                    </td>
-                    <td>
-                      <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {items.map((item, idx) => {
+                  const showExpiry = getProductCostingMethod(item.product_id) === 'fifo';
+                  const unitOptions = getReceiveUnitOptions(getProductUnit(item.product_id));
+                  const receiveUnit = item.receive_unit || getProductUnit(item.product_id) || '';
+                  const receiveMeta = unitOptions.find(o => o.value === receiveUnit);
+                  const baseUnitAbbr = getUnitMeta(getProductUnit(item.product_id)).abbr;
+                  return (
+                    <Fragment key={idx}>
+                      <tr>
+                        <td>
+                          <select className="input py-1.5 text-sm" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)}>
+                            <option value="">{t.grn_select_product}</option>
+                            {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1.5">
+                            <input type="number" className="input py-1.5 text-sm font-mono" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} placeholder="0" min="0" step={receiveMeta?.step ?? getUnitMeta(getProductUnit(item.product_id)).step} />
+                            {item.product_id && (
+                              unitOptions.length > 1 ? (
+                                <select
+                                  className="input py-1 text-xs w-auto shrink-0"
+                                  value={receiveUnit}
+                                  onChange={(e) => updateItem(idx, 'receive_unit', e.target.value)}
+                                >
+                                  {unitOptions.map(o => <option key={o.value} value={o.value}>{o.abbr}</option>)}
+                                </select>
+                              ) : (
+                                <span className="text-xs text-surface-400 shrink-0">{baseUnitAbbr}</span>
+                              )
+                            )}
+                          </div>
+                          {item.product_id && receiveUnit !== getProductUnit(item.product_id) && item.quantity && (
+                            <div className="text-xs text-surface-400 mt-0.5">
+                              = {formatQuantity(getItemBaseQty(item), getProductUnit(item.product_id))}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <input type="number" className="input py-1.5 text-sm font-mono" value={item.buying_price} onChange={(e) => updateItem(idx, 'buying_price', e.target.value)} placeholder="0.00" min="0" step="0.0001" />
+                          {item.product_id && <div className="text-xs text-surface-400 mt-0.5">per {baseUnitAbbr}</div>}
+                        </td>
+                        <td className="text-right font-mono font-semibold">
+                          {fmt(getItemBaseQty(item) * (parseFloat(item.buying_price) || 0))}
+                        </td>
+                        <td>
+                          <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                      {showExpiry && (
+                        <tr className="bg-primary-50/40">
+                          <td colSpan={5} className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs font-medium text-surface-600 whitespace-nowrap">Expiry Date (optional)</label>
+                              <input
+                                type="date"
+                                className="input py-1 text-xs"
+                                value={item.expiry_date}
+                                onChange={(e) => updateItem(idx, 'expiry_date', e.target.value)}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr>
@@ -347,7 +444,7 @@ export default function GRNPage() {
                 <tr>
                   <th>Product</th>
                   <th className="text-right">Received Qty</th>
-                  <th className="text-right">Buying Price</th>
+                  <th className="text-right">{t.grn_col_buying_price}</th>
                   <th className="text-right w-36">Return Qty</th>
                 </tr>
               </thead>
@@ -384,6 +481,47 @@ export default function GRNPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Add Supplier Modal */}
+      <Modal
+        isOpen={supplierModal}
+        onClose={() => setSupplierModal(false)}
+        title="Add Supplier"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setSupplierModal(false)} className="btn-secondary">{t.cancel}</button>
+            <button onClick={handleAddSupplier} disabled={savingSupplier} className="btn-primary">
+              {savingSupplier ? t.saving : 'Add Supplier'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="label">Name <span className="text-red-500">*</span></label>
+            <input className="input" value={newSupplier.name} onChange={(e) => setNewSupplier(s => ({ ...s, name: e.target.value }))} placeholder="Supplier name" autoFocus />
+          </div>
+          <div>
+            <label className="label">Contact Person</label>
+            <input className="input" value={newSupplier.contact_person} onChange={(e) => setNewSupplier(s => ({ ...s, contact_person: e.target.value }))} placeholder="Optional" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Phone</label>
+              <input className="input" value={newSupplier.phone} onChange={(e) => setNewSupplier(s => ({ ...s, phone: e.target.value }))} placeholder="Optional" />
+            </div>
+            <div>
+              <label className="label">Email</label>
+              <input className="input" value={newSupplier.email} onChange={(e) => setNewSupplier(s => ({ ...s, email: e.target.value }))} placeholder="Optional" />
+            </div>
+          </div>
+          <div>
+            <label className="label">Address</label>
+            <textarea className="input" rows={2} value={newSupplier.address} onChange={(e) => setNewSupplier(s => ({ ...s, address: e.target.value }))} placeholder="Optional" />
+          </div>
+        </div>
       </Modal>
     </PageContainer>
   );

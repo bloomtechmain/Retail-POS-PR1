@@ -8,6 +8,7 @@ export interface BusinessProfileValue {
   email: string;
   currency_code: string;
   currency_symbol: string;
+  vat_registration_number: string;
 }
 
 const CURRENCY_PRESETS = [
@@ -76,6 +77,16 @@ export function BusinessProfileForm({ value, onChange }: Props) {
       <div>
         <label className="label">Address</label>
         <textarea className="input" rows={2} value={value.address} onChange={(e) => set({ address: e.target.value })} />
+      </div>
+
+      <div>
+        <label className="label">TIN Number <span className="font-normal text-surface-400">(Taxpayer Identification Number — shown on Tax Invoices)</span></label>
+        <input
+          className="input font-mono"
+          value={value.vat_registration_number}
+          onChange={(e) => set({ vat_registration_number: e.target.value })}
+          placeholder="e.g. TN2342"
+        />
       </div>
 
       <div>

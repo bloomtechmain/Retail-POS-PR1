@@ -10,6 +10,8 @@ import shiftRoutes from './shift.routes';
 import userRoutes from './user.routes';
 import customerRoutes from './customer.routes';
 import settingsRoutes from './settings.routes';
+import taxRateRoutes from './taxRate.routes';
+import vatInvoiceRoutes from './vatInvoice.routes';
 
 const router = Router();
 
@@ -24,5 +26,7 @@ router.use('/shifts', shiftRoutes);
 router.use('/users', userRoutes);
 router.use('/customers', customerRoutes);
 router.use('/settings', settingsRoutes);
+router.use('/tax-rates', taxRateRoutes);
+router.use('/vat-invoices', vatInvoiceRoutes);
 
 export default router;

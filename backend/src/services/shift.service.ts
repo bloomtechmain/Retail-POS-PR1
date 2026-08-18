@@ -41,15 +41,28 @@ export const closeShift = async (
   actualCash: number,
   notes?: string
 ): Promise<Shift> => {
-  // Get shift with totals
+  // Get shift with totals — sales aggregated separately from returns to avoid
+  // join fan-out, then combined; returns are attributed to the shift that
+  // actually processed them (cash left/re-entered the drawer during THIS
+  // shift, regardless of which shift the original sale happened in).
   const shiftResult = await query(
     `SELECT s.*,
-       COALESCE(SUM(CASE WHEN sa.status='completed' THEN sa.total_amount ELSE 0 END), 0) as calculated_total,
-       COALESCE(SUM(CASE WHEN sa.status='completed' AND sa.payment_method IN ('cash','mixed') THEN sa.cash_tendered - sa.change_amount ELSE 0 END), 0) as calculated_cash
+       COALESCE(sales_agg.calculated_total, 0) - COALESCE(returns_agg.total_refund, 0) as calculated_total,
+       COALESCE(sales_agg.calculated_cash, 0) - COALESCE(returns_agg.cash_refund, 0) as calculated_cash
      FROM shifts s
-     LEFT JOIN sales sa ON sa.shift_id = s.id
-     WHERE s.id = $1 AND s.status = 'open'
-     GROUP BY s.id`,
+     LEFT JOIN (
+       SELECT shift_id,
+         SUM(CASE WHEN status IN ('completed','refunded') THEN total_amount ELSE 0 END) as calculated_total,
+         SUM(CASE WHEN status IN ('completed','refunded') AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount ELSE 0 END) as calculated_cash
+       FROM sales GROUP BY shift_id
+     ) sales_agg ON sales_agg.shift_id = s.id
+     LEFT JOIN (
+       SELECT shift_id,
+         SUM(total_refund_amount) as total_refund,
+         SUM(CASE WHEN refund_method = 'cash' THEN total_refund_amount ELSE 0 END) as cash_refund
+       FROM sale_returns GROUP BY shift_id
+     ) returns_agg ON returns_agg.shift_id = s.id
+     WHERE s.id = $1 AND s.status = 'open'`,
     [shiftId]
   );
 
@@ -112,23 +125,58 @@ export const getShiftReport = async (shiftId: number) => {
 
   const salesResult = await query(
     `SELECT
-       COUNT(*) as total_transactions,
-       COALESCE(SUM(CASE WHEN status='completed' THEN total_amount END), 0) as total_revenue,
-       COALESCE(SUM(CASE WHEN status='completed' THEN profit END), 0) as total_profit,
-       COALESCE(SUM(CASE WHEN status='completed' AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount END), 0) as total_cash,
-       COALESCE(SUM(CASE WHEN status='completed' AND payment_method IN ('card','mixed') THEN card_amount END), 0) as total_card,
-       COUNT(CASE WHEN status='voided' THEN 1 END) as voided_count
-     FROM sales WHERE shift_id = $1`,
+       sales_agg.total_transactions,
+       sales_agg.voided_count,
+       COALESCE(sales_agg.total_revenue, 0) - COALESCE(returns_agg.total_refund, 0) as total_revenue,
+       COALESCE(sales_agg.total_profit, 0) - COALESCE(returns_agg.total_refund_profit_impact, 0) as total_profit,
+       COALESCE(sales_agg.total_cash, 0) - COALESCE(returns_agg.cash_refund, 0) as total_cash,
+       COALESCE(sales_agg.total_card, 0) - COALESCE(returns_agg.card_refund, 0) as total_card
+     FROM (
+       SELECT
+         COUNT(*) as total_transactions,
+         SUM(CASE WHEN status IN ('completed','refunded') THEN total_amount END) as total_revenue,
+         SUM(CASE WHEN status IN ('completed','refunded') THEN profit END) as total_profit,
+         SUM(CASE WHEN status IN ('completed','refunded') AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount END) as total_cash,
+         SUM(CASE WHEN status IN ('completed','refunded') AND payment_method IN ('card','mixed') THEN card_amount END) as total_card,
+         COUNT(CASE WHEN status='voided' THEN 1 END) as voided_count
+       FROM sales WHERE shift_id = $1
+     ) sales_agg
+     LEFT JOIN (
+       SELECT sr.shift_id,
+         SUM(sr.total_refund_amount) as total_refund,
+         SUM(CASE WHEN sr.refund_method = 'cash' THEN sr.total_refund_amount ELSE 0 END) as cash_refund,
+         SUM(CASE WHEN sr.refund_method = 'card' THEN sr.total_refund_amount ELSE 0 END) as card_refund,
+         SUM(sr.total_refund_amount - COALESCE(sri_cost.cost, 0)) as total_refund_profit_impact
+       FROM sale_returns sr
+       LEFT JOIN (
+         SELECT return_id, SUM(quantity * cost_price) as cost FROM sale_return_items GROUP BY return_id
+       ) sri_cost ON sri_cost.return_id = sr.id
+       WHERE sr.shift_id = $1
+       GROUP BY sr.shift_id
+     ) returns_agg ON TRUE`,
     [shiftId]
   );
 
   const topProducts = await query(
-    `SELECT p.name, SUM(si.quantity) as qty_sold, SUM(si.subtotal) as revenue
-     FROM sale_items si
-     JOIN sales s ON si.sale_id = s.id
-     JOIN products p ON si.product_id = p.id
-     WHERE s.shift_id = $1 AND s.status = 'completed'
-     GROUP BY p.id, p.name
+    `WITH sold AS (
+       SELECT p.id, p.name, SUM(si.quantity) as qty, SUM(si.subtotal) as revenue
+       FROM sale_items si
+       JOIN sales s ON si.sale_id = s.id
+       JOIN products p ON si.product_id = p.id
+       WHERE s.shift_id = $1 AND s.status IN ('completed','refunded')
+       GROUP BY p.id, p.name
+     ), returned AS (
+       SELECT si.product_id, SUM(sri.quantity) as qty, SUM(sri.refund_subtotal) as revenue
+       FROM sale_return_items sri
+       JOIN sale_items si ON sri.sale_item_id = si.id
+       JOIN sale_returns sr ON sri.return_id = sr.id
+       WHERE sr.shift_id = $1
+       GROUP BY si.product_id
+     )
+     SELECT sold.name,
+       sold.qty - COALESCE(returned.qty, 0) as qty_sold,
+       sold.revenue - COALESCE(returned.revenue, 0) as revenue
+     FROM sold LEFT JOIN returned ON returned.product_id = sold.id
      ORDER BY revenue DESC LIMIT 10`,
     [shiftId]
   );

@@ -49,7 +49,17 @@ export interface Settings {
   email?: string;
   currency_code: string;
   currency_symbol: string;
+  vat_registration_number?: string;
   setup_completed: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface TaxRate {
+  id: number;
+  name: string;
+  rate: number;
+  is_active: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -75,9 +85,23 @@ export interface Product {
   image_url?: string;
   is_active: boolean;
   allow_negative_stock: boolean;
+  costing_method?: 'weighted_average' | 'fifo' | null;
   created_at: Date;
   updated_at: Date;
   deleted_at?: Date;
+}
+
+export interface ProductBatch {
+  id: number;
+  product_id: number;
+  grn_item_id?: number;
+  batch_number: string;
+  quantity_received: number;
+  quantity_remaining: number;
+  unit_cost: number;
+  expiry_date?: Date;
+  received_date: Date;
+  created_at: Date;
 }
 
 export interface Supplier {
@@ -235,6 +259,13 @@ export interface Sale {
   notes?: string;
   customer_name?: string;
   customer_id?: number;
+  is_vat_invoice?: boolean;
+  vat_invoice_number?: string;
+  buyer_vat_reg_no?: string;
+  buyer_address?: string;
+  buyer_phone?: string;
+  delivery_date?: string;
+  place_of_supply?: string;
   created_at: Date;
   updated_at: Date;
   items?: SaleItem[];
@@ -257,6 +288,16 @@ export interface SaleItem {
   promotion_id?: number;
   already_returned?: number;
   created_at: Date;
+  taxes?: SaleItemTax[];
+}
+
+export interface SaleItemTax {
+  id: number;
+  sale_item_id: number;
+  tax_rate_id?: number;
+  tax_name: string;
+  tax_rate: number;
+  tax_amount: number;
 }
 
 export interface SaleReturn {
@@ -314,6 +355,37 @@ export interface CreateSalePayload {
   card_amount: number;
   customer_name?: string;
   customer_id?: number;
+  notes?: string;
+}
+
+export interface VatInvoiceCartItem {
+  product_id: number;
+  product_name: string;
+  barcode?: string;
+  sku: string;
+  quantity: number;
+  unit_price: number;
+  original_price: number;
+  cost_price: number;
+  item_discount: number;
+  // One or more named taxes applied to this line, each computed on the same
+  // taxable (post item-discount) amount and summed — not compounded.
+  taxes: Array<{ tax_rate_id?: number; name: string; rate: number }>;
+}
+
+export interface CreateVatInvoicePayload {
+  cart_items: VatInvoiceCartItem[];
+  bill_discount: number;
+  payment_method: 'cash' | 'card' | 'mixed' | 'credit';
+  cash_tendered: number;
+  card_amount: number;
+  customer_name?: string;
+  customer_id?: number;
+  buyer_vat_reg_no?: string;
+  buyer_address?: string;
+  buyer_phone?: string;
+  delivery_date?: string;
+  place_of_supply?: string;
   notes?: string;
 }
 

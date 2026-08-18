@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
-import { Product, Category, Brand } from '../types';
+import { Product, Category, Brand, CostHistoryEntry } from '../types';
 import { useToastStore } from '../store/toastStore';
 import api from '../services/api';
 import { AxiosError } from 'axios';
@@ -14,6 +14,7 @@ const EMPTY: Partial<Product> = {
   name: '', name_en: '', barcode: '', sku: '', selling_price: 0, cost_price: 0,
   unit_type: 'piece', current_stock: 0, low_stock_level: 5,
   tax_rate: 0, is_active: true, allow_negative_stock: true,
+  costing_method: 'weighted_average',
 };
 
 export default function Products() {
@@ -30,6 +31,8 @@ export default function Products() {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customUnit, setCustomUnit] = useState(false);
+  const [costHistory, setCostHistory] = useState<CostHistoryEntry[]>([]);
+  const [loadingCostHistory, setLoadingCostHistory] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -49,12 +52,17 @@ export default function Products() {
     api.get('/products/brands').then(r => setBrands(r.data.data));
   }, []);
 
-  const openCreate = () => { setEditProduct(EMPTY); setIsEditing(false); setCustomUnit(false); setModalOpen(true); };
+  const openCreate = () => { setEditProduct(EMPTY); setIsEditing(false); setCustomUnit(false); setCostHistory([]); setModalOpen(true); };
   const openEdit = (p: Product) => {
     setEditProduct({ ...p });
     setIsEditing(true);
     setCustomUnit(!!p.unit_type && !UNIT_PRESETS.some(u => u.value === p.unit_type));
     setModalOpen(true);
+    setCostHistory([]);
+    setLoadingCostHistory(true);
+    api.get(`/products/${p.id}/cost-history`)
+      .then(r => setCostHistory(r.data.data))
+      .finally(() => setLoadingCostHistory(false));
   };
 
   const handleSave = async () => {
@@ -163,7 +171,7 @@ export default function Products() {
                     </td>
                     <td>
                       <div className="flex items-center gap-1">
-                        <button onClick={() => openEdit(p)} className="btn-ghost btn-sm">{t.edit}</button>
+                        <button onClick={() => openEdit(p)} className="btn-ghost btn-sm">{t.products_view_edit}</button>
                         <button onClick={() => handleDelete(p.id)} className="btn-sm text-red-500 hover:bg-red-50 rounded-lg px-2 py-1 text-xs font-medium">{t.del}</button>
                       </div>
                     </td>
@@ -274,6 +282,22 @@ export default function Products() {
             )}
           </div>
           <div>
+            <label className="label">Costing Method *</label>
+            <select
+              className="input"
+              value={editProduct.costing_method || 'weighted_average'}
+              onChange={(e) => setEditProduct(p => ({ ...p, costing_method: e.target.value as Product['costing_method'] }))}
+            >
+              <option value="weighted_average">Weighted Average</option>
+              <option value="fifo">FIFO / Batch-wise</option>
+            </select>
+            {isEditing && (
+              <p className="text-xs text-surface-400 mt-1">
+                Applies going forward only — existing stock/cost history isn't rewritten. The next GRN receipt or sale uses the new method.
+              </p>
+            )}
+          </div>
+          <div>
             <label className="label">{t.products_opening_stock} ({getUnitMeta(editProduct.unit_type).abbr})</label>
             <input
               type="number"
@@ -302,6 +326,47 @@ export default function Products() {
               <span className="text-sm">{t.products_allow_negative}</span>
             </label>
           </div>
+
+          {isEditing && (
+            <div className="col-span-2 pt-2 border-t border-surface-100">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-surface-900 text-sm">Cost History</h3>
+                <span className="text-sm text-surface-500">
+                  Current Cost: <span className="font-semibold text-surface-900">{fmt(editProduct.avg_cost || editProduct.cost_price || 0)}</span>
+                </span>
+              </div>
+              {loadingCostHistory ? (
+                <p className="text-xs text-surface-400">Loading...</p>
+              ) : costHistory.length === 0 ? (
+                <p className="text-xs text-surface-400">No purchase history yet — cost will change here as GRN receipts come in.</p>
+              ) : (
+                <div className="table-wrapper max-h-56 overflow-y-auto">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Source</th>
+                        <th className="text-right">Quantity</th>
+                        <th className="text-right">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {costHistory.map((h) => (
+                        <tr key={h.id}>
+                          <td className="text-sm">{new Date(h.created_at).toLocaleDateString()}</td>
+                          <td className="text-sm">
+                            {h.movement_type === 'opening' ? 'Opening Stock' : (h.grn_number || 'GRN Purchase')}
+                          </td>
+                          <td className="text-right font-mono">{formatQuantity(h.quantity, editProduct.unit_type)}</td>
+                          <td className="text-right font-mono">{fmt(h.unit_cost, 4)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </PageContainer>

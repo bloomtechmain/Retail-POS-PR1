@@ -79,3 +79,17 @@ export const brands = async (req: AuthRequest, res: Response, next: NextFunction
     res.json({ success: true, data });
   } catch (err) { next(err); }
 };
+
+export const batches = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await productService.getProductBatches(parseInt(req.params.id));
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+export const costHistory = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await productService.getProductCostHistory(parseInt(req.params.id));
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
