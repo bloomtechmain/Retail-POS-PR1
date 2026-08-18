@@ -74,6 +74,15 @@ export interface ProductBatch {
   created_at: string;
 }
 
+export interface CostHistoryEntry {
+  id: number;
+  movement_type: 'opening' | 'grn_in';
+  quantity: number;
+  unit_cost: number;
+  created_at: string;
+  grn_number?: string;
+}
+
 export interface Category {
   id: number;
   name: string;

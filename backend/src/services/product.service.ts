@@ -146,6 +146,18 @@ export const createProduct = async (data: Partial<Product>): Promise<Product> =>
       });
     }
 
+    // Records the starting cost point for the cost-history view — every
+    // product gets one, even with zero opening stock (the far more common
+    // case — most products get their first real stock via GRN). Without
+    // this, the cost entered at creation is lost the moment the first GRN
+    // receipt overwrites products.cost_price, with no trace it ever existed.
+    await client.query(
+      `INSERT INTO stock_movements
+         (product_id, movement_type, quantity, balance_before, balance_after, unit_cost, reference_type)
+       VALUES ($1,'opening',$2,0,$2,$3,'product_creation')`,
+      [product.id, openingStock, openingCost]
+    );
+
     return product;
   });
 };
@@ -155,14 +167,22 @@ export const updateProduct = async (id: number, data: Partial<Product>): Promise
   const values: unknown[] = [];
   let i = 1;
 
-  // costing_method is deliberately excluded — it's chosen once, at product
-  // creation, not editable here (batch/cost data already depends on it,
-  // so changing it after the fact would corrupt the cost trail).
+  // Editable going forward, not retroactive: switching costing_method never
+  // rewrites past batches/avg_cost history, it only changes which one the
+  // NEXT GRN receipt / sale looks at. This is safe by construction —
+  // switching to weighted_average just stops touching product_batches (avg_cost
+  // is already kept live for every product regardless of method); switching
+  // to fifo with no batches yet falls back to avg_cost for any un-batched
+  // stock until the next GRN receipt starts building real batches.
   const allowed = [
     'name', 'name_en', 'barcode', 'sku', 'description', 'selling_price', 'cost_price',
     'category_id', 'brand_id', 'unit_type', 'low_stock_level',
-    'tax_rate', 'image_url', 'is_active', 'allow_negative_stock',
+    'tax_rate', 'image_url', 'is_active', 'allow_negative_stock', 'costing_method',
   ];
+
+  if (data.costing_method !== undefined && !['weighted_average', 'fifo'].includes(data.costing_method as string)) {
+    throw createError('Invalid costing method', 400);
+  }
 
   for (const key of allowed) {
     if (key in data && data[key as keyof Product] !== undefined) {
@@ -226,6 +246,23 @@ export const getBrands = async () => {
   const result = await query(
     'SELECT * FROM brands WHERE deleted_at IS NULL ORDER BY name',
     []
+  );
+  return result.rows;
+};
+
+// Chronological trail of what this product's cost was set to at each
+// purchase — the opening stock entry (if any) plus every GRN receipt.
+// Deliberately excludes adjustments/returns/GRN-returns: none of those
+// change avg_cost, so they aren't "buys" that moved the cost.
+export const getProductCostHistory = async (productId: number) => {
+  const result = await query(
+    `SELECT sm.id, sm.movement_type, sm.quantity, sm.unit_cost, sm.created_at,
+            g.grn_number
+     FROM stock_movements sm
+     LEFT JOIN grn g ON sm.reference_type = 'grn' AND sm.reference_id = g.id
+     WHERE sm.product_id = $1 AND sm.movement_type IN ('opening', 'grn_in')
+     ORDER BY sm.created_at ASC, sm.id ASC`,
+    [productId]
   );
   return result.rows;
 };

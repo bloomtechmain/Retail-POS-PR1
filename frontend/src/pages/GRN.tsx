@@ -444,7 +444,7 @@ export default function GRNPage() {
                 <tr>
                   <th>Product</th>
                   <th className="text-right">Received Qty</th>
-                  <th className="text-right">Buying Price</th>
+                  <th className="text-right">{t.grn_col_buying_price}</th>
                   <th className="text-right w-36">Return Qty</th>
                 </tr>
               </thead>
