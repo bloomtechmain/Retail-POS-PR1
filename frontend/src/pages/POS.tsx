@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
-import { Product, Promotion, Sale, SaleReturn, Customer } from '../types';
+import { Product, Promotion, Sale, SaleItem, SaleReturn, Customer } from '../types';
 import api from '../services/api';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -393,8 +393,14 @@ function SaleReturnModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
     } finally { setProcessing(false); }
   };
 
+  // Refund per unit is derived from the line's actual charged subtotal
+  // (already net of item discount and inclusive of tax) — not the gross
+  // unit_price, which would over-refund a discounted line and under-refund
+  // a taxed one. Mirrors the backend's returnSaleItems calculation exactly.
+  const perUnitRefund = (item: SaleItem) => r2(item.subtotal / (item.quantity || 1));
+
   const refundTotal = sale?.items?.reduce((sum, item) => {
-    return sum + r2((returnQtys[item.id] ?? 0) * item.unit_price);
+    return sum + r2((returnQtys[item.id] ?? 0) * perUnitRefund(item));
   }, 0) ?? 0;
 
   const title = step === 'lookup' ? 'Process Return' : step === 'select' ? `Return — ${sale?.sale_number}` : 'Return Processed';
@@ -455,7 +461,7 @@ function SaleReturnModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
                           }} />
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-red-500">
-                        {qty > 0 ? `−${fmt(item.unit_price * qty)}` : '—'}
+                        {qty > 0 ? `−${fmt(perUnitRefund(item) * qty)}` : '—'}
                       </td>
                     </tr>
                   );

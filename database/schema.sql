@@ -53,6 +53,19 @@ CREATE TABLE IF NOT EXISTS brands (
 );
 
 -- ============================================================
+-- TAX RATES (named taxes selectable on VAT invoice lines, e.g. VAT, NBT)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS tax_rates (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  rate DECIMAL(5,2) NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================================
 -- PRODUCTS
 -- ============================================================
 
@@ -305,6 +318,13 @@ CREATE TABLE IF NOT EXISTS sales (
   notes TEXT,
   customer_name VARCHAR(255),
   customer_id INTEGER REFERENCES customers(id),
+  is_vat_invoice BOOLEAN NOT NULL DEFAULT FALSE,
+  vat_invoice_number VARCHAR(50),
+  buyer_vat_reg_no VARCHAR(100),
+  buyer_address TEXT,
+  buyer_phone VARCHAR(50),
+  delivery_date DATE,
+  place_of_supply VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -326,6 +346,24 @@ CREATE TABLE IF NOT EXISTS sale_items (
   promotion_id INTEGER REFERENCES promotions(id),
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Itemized tax breakdown for a sale_items row — a VAT invoice line can carry
+-- more than one named tax (e.g. VAT + NBT) stacked on the same taxable
+-- amount; sale_items.tax_rate/tax_amount keep holding the combined total so
+-- every existing report/profit calculation is unaffected. Name/rate are
+-- snapshotted here (not just tax_rate_id) so a historical invoice never
+-- changes if the tax_rates registry is edited or a rate is deleted later.
+CREATE TABLE IF NOT EXISTS sale_item_taxes (
+  id SERIAL PRIMARY KEY,
+  sale_item_id INTEGER NOT NULL REFERENCES sale_items(id) ON DELETE CASCADE,
+  tax_rate_id INTEGER REFERENCES tax_rates(id),
+  tax_name VARCHAR(100) NOT NULL,
+  tax_rate DECIMAL(5,2) NOT NULL,
+  tax_amount DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sale_item_taxes_item ON sale_item_taxes(sale_item_id);
 
 CREATE INDEX IF NOT EXISTS idx_sales_shift ON sales(shift_id);
 CREATE INDEX IF NOT EXISTS idx_sales_cashier ON sales(cashier_id);
@@ -402,11 +440,26 @@ CREATE TABLE IF NOT EXISTS settings (
   email VARCHAR(255),
   currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
   currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
+  vat_registration_number VARCHAR(100),
   setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   CONSTRAINT settings_singleton CHECK (id = 1)
 );
+
+-- ============================================================
+-- VAT INVOICE NUMBERING (singleton counter — strictly sequential, no gaps;
+-- incremented under a row lock inside the same transaction as the sale
+-- insert, so a rolled-back sale never consumes a number)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS vat_invoice_counter (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  next_number INTEGER NOT NULL DEFAULT 1,
+  CONSTRAINT vat_invoice_counter_singleton CHECK (id = 1)
+);
+
+INSERT INTO vat_invoice_counter (id, next_number) VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
 -- SEED DATA

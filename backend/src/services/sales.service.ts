@@ -422,7 +422,13 @@ export const returnSaleItems = async (
         );
       }
 
-      const refundSubtotal = round2(parseFloat(original.unit_price) * returnItem.quantity);
+      // Refund proportionally to what was actually charged for this line
+      // (original.subtotal is already net of item_discount and inclusive of
+      // tax) — not the gross unit_price, which would over-refund any line
+      // that had a discount and under-refund any line that had tax.
+      const originalQty = parseFloat(original.quantity) || 1;
+      const perUnitCharged = round2(parseFloat(original.subtotal) / originalQty);
+      const refundSubtotal = round2(perUnitCharged * returnItem.quantity);
       totalRefundAmount += refundSubtotal;
 
       processedItems.push({

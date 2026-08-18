@@ -16,6 +16,7 @@ const EMPTY: BusinessProfileValue = {
   email: '',
   currency_code: 'USD',
   currency_symbol: '$',
+  vat_registration_number: '',
 };
 
 export default function Setup() {

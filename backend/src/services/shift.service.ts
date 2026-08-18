@@ -52,8 +52,8 @@ export const closeShift = async (
      FROM shifts s
      LEFT JOIN (
        SELECT shift_id,
-         SUM(CASE WHEN status='completed' THEN total_amount ELSE 0 END) as calculated_total,
-         SUM(CASE WHEN status='completed' AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount ELSE 0 END) as calculated_cash
+         SUM(CASE WHEN status IN ('completed','refunded') THEN total_amount ELSE 0 END) as calculated_total,
+         SUM(CASE WHEN status IN ('completed','refunded') AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount ELSE 0 END) as calculated_cash
        FROM sales GROUP BY shift_id
      ) sales_agg ON sales_agg.shift_id = s.id
      LEFT JOIN (
@@ -134,10 +134,10 @@ export const getShiftReport = async (shiftId: number) => {
      FROM (
        SELECT
          COUNT(*) as total_transactions,
-         SUM(CASE WHEN status='completed' THEN total_amount END) as total_revenue,
-         SUM(CASE WHEN status='completed' THEN profit END) as total_profit,
-         SUM(CASE WHEN status='completed' AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount END) as total_cash,
-         SUM(CASE WHEN status='completed' AND payment_method IN ('card','mixed') THEN card_amount END) as total_card,
+         SUM(CASE WHEN status IN ('completed','refunded') THEN total_amount END) as total_revenue,
+         SUM(CASE WHEN status IN ('completed','refunded') THEN profit END) as total_profit,
+         SUM(CASE WHEN status IN ('completed','refunded') AND payment_method IN ('cash','mixed') THEN cash_tendered - change_amount END) as total_cash,
+         SUM(CASE WHEN status IN ('completed','refunded') AND payment_method IN ('card','mixed') THEN card_amount END) as total_card,
          COUNT(CASE WHEN status='voided' THEN 1 END) as voided_count
        FROM sales WHERE shift_id = $1
      ) sales_agg

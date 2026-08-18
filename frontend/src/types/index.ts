@@ -16,9 +16,17 @@ export interface Settings {
   email?: string;
   currency_code: string;
   currency_symbol: string;
+  vat_registration_number?: string;
   setup_completed: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaxRate {
+  id: number;
+  name: string;
+  rate: number;
+  is_active: boolean;
 }
 
 export interface CategoryTemplate {
@@ -119,6 +127,13 @@ export interface Sale {
   notes?: string;
   customer_name?: string;
   customer_id?: number;
+  is_vat_invoice?: boolean;
+  vat_invoice_number?: string;
+  buyer_vat_reg_no?: string;
+  buyer_address?: string;
+  buyer_phone?: string;
+  delivery_date?: string;
+  place_of_supply?: string;
   created_at: string;
   items?: SaleItem[];
 }
@@ -159,13 +174,25 @@ export interface SaleItem {
   id: number;
   product_id: number;
   product_name: string;
+  barcode?: string;
   quantity: number;
   unit_price: number;
   cost_price: number;
   item_discount: number;
+  tax_rate: number;
   tax_amount: number;
   subtotal: number;
   already_returned?: number;
+  taxes?: SaleItemTax[];
+}
+
+export interface SaleItemTax {
+  id: number;
+  sale_item_id: number;
+  tax_rate_id?: number;
+  tax_name: string;
+  tax_rate: number;
+  tax_amount: number;
 }
 
 export interface SaleReturn {

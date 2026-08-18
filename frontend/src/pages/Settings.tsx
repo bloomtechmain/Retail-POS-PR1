@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { BusinessProfileForm, BusinessProfileValue } from '../components/settings/BusinessProfileForm';
+import { TaxRatesManager } from '../components/settings/TaxRatesManager';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -15,6 +16,7 @@ const EMPTY: BusinessProfileValue = {
   email: '',
   currency_code: 'USD',
   currency_symbol: '$',
+  vat_registration_number: '',
 };
 
 export default function SettingsPage() {
@@ -34,6 +36,7 @@ export default function SettingsPage() {
         email: settings.email || '',
         currency_code: settings.currency_code || 'USD',
         currency_symbol: settings.currency_symbol || '$',
+        vat_registration_number: settings.vat_registration_number || '',
       });
       setLoading(false);
     }
@@ -70,6 +73,10 @@ export default function SettingsPage() {
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
+      </div>
+
+      <div className="card p-6 mt-6">
+        <TaxRatesManager />
       </div>
     </PageContainer>
   );
