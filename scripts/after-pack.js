@@ -58,7 +58,7 @@ exports.default = async function afterPack(context) {
   let count = 0;
 
   // 1. Obfuscate all compiled backend JS in the build output
-  const backendDist = path.join(appDir, 'backend', 'dist');
+  const backendDist = path.join(appDir, 'apps', 'pos', 'backend', 'dist');
   walkDir(backendDist, (file) => {
     obfuscateFile(file);
     count++;
@@ -66,7 +66,7 @@ exports.default = async function afterPack(context) {
   console.log(`[afterPack] Backend: ${count} files obfuscated`);
 
   // 2. Obfuscate electron/license.js in the build output
-  const licenseFile = path.join(appDir, 'electron', 'license.js');
+  const licenseFile = path.join(appDir, 'apps', 'pos', 'electron', 'license.js');
   if (fs.existsSync(licenseFile)) {
     obfuscateFile(licenseFile);
     count++;

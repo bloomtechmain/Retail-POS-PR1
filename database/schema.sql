@@ -1,6 +1,22 @@
 -- ============================================================
 -- RETAIL POS - PostgreSQL Database Schema
 -- ============================================================
+--
+-- This file is the ELECTRON DESKTOP APP's actual, literal bootstrap script —
+-- apps/pos/electron/main.js reads and executes it verbatim against a fresh
+-- local embedded Postgres on first launch (see runMigrations() there), and
+-- re-applies its own separate incremental `alterations` array on every
+-- subsequent launch. It intentionally describes a FLAT, single-business
+-- schema: one `users` table, no tenant concept at all, because each desktop
+-- install is one business with no isolation to enforce.
+--
+-- The HOSTED multi-tenant backend does NOT use this file. Its `public`
+-- schema (tenants/users+tenant_id/roles/staff/platform_customers) is
+-- defined inline in apps/pos/backend/src/config/migrate.ts, and each
+-- tenant's own schema is defined in apps/pos/backend/src/config/
+-- tenantSchema.ts — both mirror the table definitions below (minus the
+-- multi-tenant-only tables) and must be kept in sync with this file
+-- whenever a column here changes.
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -441,6 +457,12 @@ CREATE TABLE IF NOT EXISTS settings (
   currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
   currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
   vat_registration_number VARCHAR(100),
+  plan_key VARCHAR(20) NOT NULL DEFAULT 'basic',
+  -- Explicit FeatureKey[] override, set by a marketing agent customizing
+  -- this install's package beyond its plan defaults at license activation
+  -- (see requireFeature / planIncludes in data/plans.ts). NULL = use the
+  -- plan's default features.
+  custom_features JSONB,
   setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),

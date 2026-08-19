@@ -13,7 +13,7 @@ The build process has two separate parts:
 ### 1a. Generate Ed25519 Key Pair
 
 ```bash
-cd license-server
+cd apps/license-server
 npm install
 npm run setup
 ```
@@ -21,15 +21,15 @@ npm run setup
 This prints:
 - `ED25519_PRIVATE_KEY` — for your `.env` file (keep SECRET)
 - `ED25519_PUBLIC_KEY` — for your `.env` file
-- The PEM public key — **copy this into `electron/license.js`**
+- The PEM public key — **copy this into `apps/pos/electron/license.js`**
 
 ### 1b. Configure License Server
 
 ```bash
-cp license-server/.env.example license-server/.env
+cp apps/license-server/.env.example apps/license-server/.env
 ```
 
-Edit `license-server/.env`:
+Edit `apps/license-server/.env`:
 ```
 PORT=3001
 ADMIN_USERNAME=admin
@@ -43,18 +43,18 @@ SERVER_URL=http://your-server-ip:3001
 
 ### 1c. Embed Public Key in the Electron App
 
-Open `electron/license.js` and replace the placeholder:
+Open `apps/pos/electron/license.js` and replace the placeholder:
 ```javascript
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 YOUR_ACTUAL_PUBLIC_KEY_HERE
 -----END PUBLIC KEY-----`;
 ```
-The public key PEM is in `license-server/keys/public.pem`.
+The public key PEM is in `apps/license-server/keys/public.pem`.
 
 ### 1d. Start the License Server
 
 ```bash
-cd license-server
+cd apps/license-server
 npm run build
 npm start
 ```
@@ -90,10 +90,10 @@ Login with your `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 ### Install all dependencies
 
 ```bash
-# From the Retail_POS root directory:
+# From the Retail-POS-PR1 root directory:
 npm install
-npm install --prefix backend
-npm install --prefix frontend
+npm install --prefix apps/pos/backend
+npm install --prefix apps/pos/frontend
 ```
 
 ### Add an app icon (optional but recommended)
@@ -110,8 +110,8 @@ npm run electron:build
 ```
 
 This will:
-1. Compile the TypeScript backend → `backend/dist/`
-2. Build the React frontend → `frontend/dist/`
+1. Compile the TypeScript backend → `apps/pos/backend/dist/`
+2. Build the React frontend → `apps/pos/frontend/dist/`
 3. Package everything with Electron
 4. Create the NSIS installer → `dist-electron/RetailPOS Setup 1.0.0.exe`
 
@@ -138,26 +138,28 @@ This will:
 ## Folder Structure
 
 ```
-Retail_POS/
-├── electron/
-│   ├── main.js          — Electron main process
-│   ├── license.js       — License verification (embed public key here)
-│   ├── activation.html  — Activation screen (first launch)
-│   └── splash.html      — Loading screen
-├── backend/             — Express API (TypeScript)
-├── frontend/            — React app (TypeScript + Vite)
-├── license-server/      — Separate license management server
-│   ├── src/
-│   │   ├── app.ts
-│   │   ├── db.ts
-│   │   ├── licenseUtils.ts
-│   │   ├── routes/
-│   │   │   ├── admin.ts
-│   │   │   └── verify.ts
-│   │   ├── middleware/auth.ts
-│   │   └── setup.ts     — Run once to generate keys
-│   └── public/
-│       └── index.html   — Admin UI
+Retail-POS-PR1/
+├── apps/
+│   ├── pos/
+│   │   ├── electron/
+│   │   │   ├── main.js          — Electron main process
+│   │   │   ├── license.js       — License verification (embed public key here)
+│   │   │   ├── activation.html  — Activation screen (first launch)
+│   │   │   └── splash.html      — Loading screen
+│   │   ├── backend/             — Express API (TypeScript)
+│   │   └── frontend/            — React app (TypeScript + Vite)
+│   └── license-server/          — Separate license management server
+│       ├── src/
+│       │   ├── app.ts
+│       │   ├── db.ts
+│       │   ├── licenseUtils.ts
+│       │   ├── routes/
+│       │   │   ├── admin.ts
+│       │   │   └── verify.ts
+│       │   ├── middleware/auth.ts
+│       │   └── setup.ts         — Run once to generate keys
+│       └── public/
+│           └── index.html       — Admin UI
 ├── build-assets/        — Icons and NSIS script
 ├── electron-builder.yml — Build configuration
 └── package.json         — Root package with build scripts

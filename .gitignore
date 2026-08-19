@@ -1,21 +1,28 @@
 # ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
-backend/node_modules/
-frontend/node_modules/
-license-server/node_modules/
+apps/pos/backend/node_modules/
+apps/pos/frontend/node_modules/
+apps/website/node_modules/
+apps/license-server/node_modules/
+apps/admin-dashboard/frontend/node_modules/
+apps/admin-dashboard/backend/node_modules/
 
 # ── Build outputs ──────────────────────────────────────────────────────────────
-backend/dist/
-frontend/dist/
+apps/pos/backend/dist/
+apps/pos/frontend/dist/
+apps/website/dist/
+apps/admin-dashboard/frontend/dist/
+apps/admin-dashboard/backend/dist/
 dist-electron/
 
 # ── Environment / secrets ──────────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
-backend/.env
-frontend/.env
-license-server/.env
+apps/pos/backend/.env
+apps/pos/frontend/.env
+apps/website/.env
+apps/license-server/.env
 
 # ── Electron artifacts ─────────────────────────────────────────────────────────
 *.exe
@@ -43,9 +50,9 @@ desktop.ini
 *.swo
 
 # ── License server ────────────────────────────────────────────────────────────
-license-server/keys/
-license-server/dist/
-license-server/data/
+apps/license-server/keys/
+apps/license-server/dist/
+apps/license-server/data/
 
 # ── Postgres data (local embedded) ────────────────────────────────────────────
 pgdata/

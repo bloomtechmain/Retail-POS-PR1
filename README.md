@@ -75,22 +75,30 @@ npm run dev
 ## Architecture
 
 ```
-Retail_POS/
-├── frontend/          # React + TypeScript + Tailwind (Vite)
-│   └── src/
-│       ├── pages/     # Login, POS, Products, Inventory, GRN, etc.
-│       ├── components/# Layout, UI components, shared
-│       ├── store/     # Zustand (auth, POS cart, toasts)
-│       ├── services/  # Axios API client
-│       └── types/     # TypeScript interfaces
-│
-├── backend/           # Node.js + Express + TypeScript
-│   └── src/
-│       ├── routes/    # API route definitions
-│       ├── controllers/ # Request handlers
-│       ├── services/  # Business logic
-│       ├── middleware/ # Auth, error handling
-│       └── config/    # Database connection
+Retail-POS-PR1/
+├── apps/
+│   ├── pos/
+│   │   ├── frontend/      # React + TypeScript + Tailwind (Vite)
+│   │   │   └── src/
+│   │   │       ├── pages/     # Login, POS, Products, Inventory, GRN, etc.
+│   │   │       ├── components/# Layout, UI components, shared
+│   │   │       ├── store/     # Zustand (auth, POS cart, toasts)
+│   │   │       ├── services/  # Axios API client
+│   │   │       └── types/     # TypeScript interfaces
+│   │   │
+│   │   ├── backend/       # Node.js + Express + TypeScript
+│   │   │   └── src/
+│   │   │       ├── routes/    # API route definitions
+│   │   │       ├── controllers/ # Request handlers
+│   │   │       ├── services/  # Business logic
+│   │   │       ├── middleware/ # Auth, error handling
+│   │   │       └── config/    # Database connection
+│   │   │
+│   │   └── electron/      # Desktop app shell (packages frontend + backend)
+│   │
+│   ├── website/           # Sign-up site for the hosted SaaS product
+│   ├── license-server/    # Desktop-app license key issuance/activation
+│   └── admin-dashboard/   # (planned)
 │
 └── database/
     ├── schema.sql     # Full PostgreSQL schema + seed roles
