@@ -22,7 +22,7 @@ const http = require('http');
 // ⚠️  PASTE YOUR PUBLIC KEY HERE (from apps/license-server/keys/public.pem)
 // ─────────────────────────────────────────────────────────────────────────────
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAxw75GSorH2THADtjpo1N2jorRW9eZB1PAwFIUPYX1Z8=
+MCowBQYDK2VwAyEA8qiPBi9rgDtkF1ndcbCD6nsOyFAn9iyHxya0aXPAEm8=
 -----END PUBLIC KEY-----`;
 // ─────────────────────────────────────────────────────────────────────────────
 
