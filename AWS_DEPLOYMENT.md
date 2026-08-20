@@ -169,3 +169,36 @@ Don't write all the `.tf` files at once. Build and verify in this order:
 ## 10. Reference — how this maps to your existing Railway setup
 
 The repo already has Railway-specific config (`railway.json`, `nixpacks.toml`, and `.env.example` comments mentioning Railway). AWS replaces that platform-managed deploy target with infrastructure you provision yourself — the **application code and env-var contract are unchanged**; only *how the process gets started and how the database is provisioned* changes. Nothing in `apps/` needs to change to move from Railway to AWS.
+
+---
+
+## 11. Current deployment status (as of the first real deploy)
+
+What's actually live right now, on a single EC2 instance (`3.147.252.26`) + one RDS Postgres database:
+
+| Piece | Status | URL |
+|---|---|---|
+| `pos-backend` | Live (PM2) | proxied via nginx at `/api/*` |
+| `admin-backend` | Live (PM2) | proxied via nginx at `:8080/api/*` |
+| `license-server` | Live (PM2) | **not** exposed publicly — only reachable from `admin-backend` via `localhost:3001` |
+| `apps/pos/frontend` | Live | `http://3.147.252.26` |
+| `apps/admin-dashboard/frontend` | Live | `http://3.147.252.26:8080` |
+| `apps/website` | Not deployed | out of scope per current decision — no public self-serve signup |
+| RDS Postgres | Live | holds real tenant/staff data, not test data |
+
+Access to the EC2 instance is via **AWS Systems Manager (SSM) Session Manager** (`aws ssm start-session --target <instance-id>`), not plain SSH — this was switched to mid-deployment specifically to stop breaking every time the local ISP's dynamic IP changed and the security group's `my_ip` rule went stale. The SSH key pair (`terraform/ec2.tf`'s `aws_key_pair`) and port 22 rule are still in place as a fallback, but SSM is the primary path now.
+
+---
+
+## 12. Checklist before trusting this with real paying customers
+
+The above is a genuine working deployment, but a few things were deliberately deferred to get something running quickly. None of these block internal testing — all of them matter before real customer data/payments flow through it.
+
+- [ ] **HTTPS.** Everything currently runs on plain `http://` — login credentials, session tokens, and all customer data travel unencrypted between browser and server. This is the single biggest real risk right now. Needs a domain name first (Let's Encrypt/ACM can't issue a trusted cert for a bare IP address); once you have one, point it at `3.147.252.26`, add an nginx TLS block (or put an Application Load Balancer + ACM cert in front), and redirect all HTTP to HTTPS.
+- [ ] **A real domain name**, replacing the raw IP everywhere (nginx `server_name`, both frontends' API URLs). Needed for HTTPS above, and to stop depending on an IP that AWS could theoretically reassign if the instance were ever replaced (the Elastic IP protects against this today, but a domain is still the right long-term fix).
+- [ ] **RDS automated backups** — confirm the actual retention window in the RDS console (Configuration tab → "Backup retention period"); don't assume it matches whatever Terraform's defaults left it at.
+- [ ] **`terraform/rds.tf`: `skip_final_snapshot = true`.** Set for easy teardown during initial setup. Flip to `false` (and consider `deletion_protection = true`) before this holds real customer data, so a `terraform destroy` or accidental deletion can't wipe the database with no safety net.
+- [ ] **Rotate `terraform.tfvars` secrets** if this repo/laptop was ever shared or the file's history is uncertain — it holds the RDS master password in plaintext (correctly gitignored, but still worth a fresh rotation before go-live as good hygiene).
+- [ ] **Decide on `license-server`'s public exposure.** Currently deliberately unreachable from the internet (only `admin-backend` calls it, over `localhost`). Fine as-is unless you want to manage offline licenses directly from a browser — if so, it needs its own nginx location/port and should probably sit behind HTTPS + a strong admin password before that happens.
+- [ ] **Cost monitoring.** Nothing here is free-tier-guaranteed forever (RDS `db.t3.micro`/EC2 `t3.small` have free-tier windows that expire). Set a AWS Budget alert so a runaway process or forgotten resource doesn't surprise you on the bill.
+- [ ] **`npm audit`** flagged several vulnerabilities across services during install (moderate/high, none investigated in depth here). Worth a proper look before this is customer-facing, even if none turn out to be exploitable in this app's actual usage.
