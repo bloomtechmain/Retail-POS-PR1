@@ -17,6 +17,7 @@ router.get('/customers', staffController.listCustomers);
 router.post('/customers', staffController.createCustomer);
 router.get('/customers/:id', staffController.customerDetail);
 router.post('/customers/:id/reactivate', staffController.reactivateCustomer);
+router.patch('/customers/:id/features', staffController.updateCustomerFeatures);
 
 router.get('/dashboard', staffController.dashboard);
 

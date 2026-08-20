@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
 import { PoolClient } from 'pg';
-import { transaction } from '../config/database';
+import { transaction, query } from '../config/database';
 import { createError } from '../middleware/error';
 import { TENANT_SCHEMA_STATEMENTS } from '../config/tenantSchema';
 import { CATEGORY_TEMPLATES } from '../data/categoryTemplates';
 import { isValidPlanKey, DEFAULT_PLAN_KEY, FeatureKey } from '../data/plans';
+import { runWithTenant } from '../config/tenantContext';
 
 export interface ProvisionTenantInput {
   businessName: string;
@@ -105,5 +106,28 @@ export const provisionTenant = async (input: ProvisionTenantInput): Promise<Prov
     );
 
     return { tenantId, schemaName, adminEmail: input.adminEmail.trim() };
+  });
+};
+
+// Lets an agent/admin change a customer's feature set anytime after
+// signup, not just at creation — the very next request that tenant makes
+// picks it up immediately, since requireFeature reads settings.custom_features
+// live on every request (no cache, no restart needed). Called internally by
+// apps/admin-dashboard/backend (see requireInternalApiKey on the route);
+// this runs with no tenant context of its own (server-to-server call, no
+// tenant JWT), so it must look up the schema and open one explicitly.
+export const updateTenantFeatures = async (
+  tenantId: number,
+  customFeatures: FeatureKey[] | null
+): Promise<void> => {
+  const tenantResult = await query('SELECT schema_name FROM public.tenants WHERE id = $1', [tenantId]);
+  if (tenantResult.rows.length === 0) throw createError('Tenant not found', 404);
+  const schemaName = tenantResult.rows[0].schema_name;
+
+  await runWithTenant(schemaName, async () => {
+    await query(
+      'UPDATE settings SET custom_features = $1, updated_at = NOW() WHERE id = 1',
+      [customFeatures && customFeatures.length > 0 ? JSON.stringify(customFeatures) : null]
+    );
   });
 };

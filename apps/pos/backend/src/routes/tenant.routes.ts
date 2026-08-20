@@ -13,4 +13,8 @@ router.post('/', tenantController.create);
 // agent provisions an online customer with a customized feature set.
 router.post('/provision', requireInternalApiKey, tenantController.provision);
 
+// Server-to-server only — agent/admin edits a customer's features anytime
+// after signup, from the admin-dashboard customer detail page.
+router.patch('/:id/features', requireInternalApiKey, tenantController.updateFeatures);
+
 export default router;

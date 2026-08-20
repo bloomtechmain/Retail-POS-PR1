@@ -35,3 +35,12 @@ export const provision = async (req: Request, res: Response, next: NextFunction)
     res.status(201).json({ success: true, data: result });
   } catch (err) { next(err); }
 };
+
+// Internal, server-to-server only — apps/admin-dashboard/backend calls this
+// whenever an agent/admin edits a customer's features after signup.
+export const updateFeatures = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await tenantService.updateTenantFeatures(parseInt(req.params.id, 10), req.body.customFeatures || null);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};

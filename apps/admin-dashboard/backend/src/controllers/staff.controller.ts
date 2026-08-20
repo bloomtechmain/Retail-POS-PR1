@@ -73,3 +73,14 @@ export const reactivateCustomer = async (req: StaffAuthRequest, res: Response, n
     res.json({ success: true, data });
   } catch (err) { next(err); }
 };
+
+export const updateCustomerFeatures = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await staffService.updateCustomerFeatures(
+      parseInt(req.params.id, 10),
+      { staff_id: req.staff!.staff_id, role: req.staff!.role },
+      req.body.customFeatures || null
+    );
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};

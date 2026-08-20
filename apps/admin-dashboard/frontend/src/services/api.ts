@@ -111,6 +111,11 @@ export const reactivateCustomer = async (id: number): Promise<PlatformCustomer> 
   return res.data.data;
 };
 
+export const updateCustomerFeatures = async (id: number, customFeatures: string[] | null): Promise<PlatformCustomer> => {
+  const res = await api.patch(`/staff/customers/${id}/features`, { customFeatures });
+  return res.data.data;
+};
+
 export const listAgents = async (): Promise<Agent[]> => {
   const res = await api.get('/staff/agents');
   return res.data.data;

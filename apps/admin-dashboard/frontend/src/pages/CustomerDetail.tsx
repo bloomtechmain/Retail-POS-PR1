@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { fetchCustomer, reactivateCustomer, PlatformCustomer } from '../services/api';
+import { fetchCustomer, reactivateCustomer, updateCustomerFeatures, fetchPlans, Plan, PlatformCustomer } from '../services/api';
 import { PageLoader } from '../components/PageLoader';
 
 const PLAN_LABELS: Record<string, string> = {
@@ -20,6 +20,7 @@ const FEATURE_LABELS: Record<string, string> = {
   multi_currency: 'Multi-currency',
   vat_invoice: 'VAT tax invoices',
 };
+const ALL_FEATURES = Object.keys(FEATURE_LABELS);
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -34,9 +35,14 @@ export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [customer, setCustomer] = useState<PlatformCustomer | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reactivating, setReactivating] = useState(false);
+
+  const [editingFeatures, setEditingFeatures] = useState(false);
+  const [featureSelection, setFeatureSelection] = useState<string[]>([]);
+  const [savingFeatures, setSavingFeatures] = useState(false);
 
   const load = () => {
     if (!id) return;
@@ -48,6 +54,32 @@ export default function CustomerDetail() {
   };
 
   useEffect(load, [id]);
+  useEffect(() => { fetchPlans().then(setPlans); }, []);
+
+  const startEditingFeatures = () => {
+    if (!customer) return;
+    const planDefaults = plans.find((p) => p.key === customer.plan_key)?.features || [];
+    setFeatureSelection(customer.custom_features && customer.custom_features.length > 0 ? customer.custom_features : planDefaults);
+    setEditingFeatures(true);
+  };
+
+  const toggleFeature = (f: string) => {
+    setFeatureSelection((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+  };
+
+  const saveFeatures = async () => {
+    if (!id) return;
+    setSavingFeatures(true);
+    try {
+      const updated = await updateCustomerFeatures(Number(id), featureSelection);
+      setCustomer(updated);
+      setEditingFeatures(false);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to update features.');
+    } finally {
+      setSavingFeatures(false);
+    }
+  };
 
   const handleReactivate = async () => {
     if (!id) return;
@@ -126,16 +158,48 @@ export default function CustomerDetail() {
           )}
         </div>
 
-        {customer.custom_features && customer.custom_features.length > 0 && (
-          <div>
-            <div className="text-xs font-medium text-surface-500 uppercase tracking-wide mb-2">Customized Features</div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-medium text-surface-500 uppercase tracking-wide">Features</div>
+            {!editingFeatures && (
+              <button className="btn-secondary btn-sm" onClick={startEditingFeatures}>Edit Features</button>
+            )}
+          </div>
+
+          {editingFeatures ? (
+            <div>
+              <p className="text-xs text-surface-500 mb-2">
+                {customer.delivery_type === 'online'
+                  ? 'Changes apply immediately — the customer sees them on their next action, no restart needed.'
+                  : "This updates the customer's record. It can't reach an already-running desktop install, only future activations."}
+              </p>
+              <div className="grid grid-cols-2 gap-2 bg-surface-50 border border-surface-200 rounded-lg p-3">
+                {ALL_FEATURES.map((f) => (
+                  <label key={f} className="flex items-center gap-2 text-sm text-surface-700">
+                    <input type="checkbox" checked={featureSelection.includes(f)} onChange={() => toggleFeature(f)} />
+                    {FEATURE_LABELS[f]}
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button className="btn-primary btn-sm" disabled={savingFeatures} onClick={saveFeatures}>
+                  {savingFeatures ? 'Saving...' : 'Save Features'}
+                </button>
+                <button className="btn-secondary btn-sm" disabled={savingFeatures} onClick={() => setEditingFeatures(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : customer.custom_features && customer.custom_features.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {customer.custom_features.map((f) => (
                 <span key={f} className="badge-blue">{FEATURE_LABELS[f] || f}</span>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="text-sm text-surface-400">Using {PLAN_LABELS[customer.plan_key] || customer.plan_key} package defaults.</p>
+          )}
+        </div>
 
         {customer.notes && (
           <div>

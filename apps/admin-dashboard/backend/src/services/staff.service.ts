@@ -3,7 +3,7 @@ import { query } from '../config/database';
 import { createError } from '../middleware/error';
 import { signStaffToken } from '../utils/jwt';
 import { StaffAuthPayload } from '../types';
-import { provisionOnlineTenant } from './posBackendClient';
+import { provisionOnlineTenant, updateTenantFeatures } from './posBackendClient';
 import { generateLicense, setLicenseActive } from './licenseServerClient';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -224,6 +224,40 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
      WHERE id = $1
      RETURNING *`,
     [customerId]
+  );
+  return withSubscriptionStatus(result.rows[0]);
+};
+
+// Lets an agent/admin change a customer's package features anytime after
+// signup, not just at creation. For online customers this pushes live to
+// their tenant (see posBackendClient.updateTenantFeatures — takes effect on
+// their very next request, no restart needed). For offline customers there
+// is no live install to push to — Electron only checks its license once at
+// first activation (same limitation already noted for reactivateCustomer /
+// license revoke-restore) — this just updates the ledger record for now,
+// which is what an agent would reference when the customer's desktop app
+// eventually needs reinstalling/reactivating anyway.
+export const updateCustomerFeatures = async (
+  customerId: number,
+  staff: { staff_id: number; role: 'admin' | 'agent' },
+  customFeatures: string[] | null
+) => {
+  const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
+  if (existing.rows.length === 0) throw createError('Customer not found', 404);
+  const row = existing.rows[0];
+  if (staff.role !== 'admin' && row.agent_id !== staff.staff_id) {
+    throw createError('You can only edit customers you created', 403);
+  }
+
+  const normalized = customFeatures && customFeatures.length > 0 ? customFeatures : null;
+
+  if (row.delivery_type === 'online' && row.tenant_id) {
+    await updateTenantFeatures(row.tenant_id, normalized);
+  }
+
+  const result = await query(
+    `UPDATE platform_customers SET custom_features = $1 WHERE id = $2 RETURNING *`,
+    [normalized ? JSON.stringify(normalized) : null, customerId]
   );
   return withSubscriptionStatus(result.rows[0]);
 };
