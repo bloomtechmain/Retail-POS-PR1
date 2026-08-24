@@ -22,6 +22,8 @@ const FEATURE_LABELS: Record<string, string> = {
 };
 const ALL_FEATURES = Object.keys(FEATURE_LABELS);
 
+const POS_DOWNLOAD_URL = 'https://app.bloomswiftpos.com/downloads/BloomPOS-Setup.exe';
+
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
@@ -43,6 +45,13 @@ export default function CustomerDetail() {
   const [editingFeatures, setEditingFeatures] = useState(false);
   const [featureSelection, setFeatureSelection] = useState<string[]>([]);
   const [savingFeatures, setSavingFeatures] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copy = (field: string, value: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField((f) => (f === field ? null : f)), 1500);
+  };
 
   const load = () => {
     if (!id) return;
@@ -154,7 +163,35 @@ export default function CustomerDetail() {
           {customer.delivery_type === 'online' ? (
             <Field label="Tenant ID" value={customer.tenant_id} />
           ) : (
-            <Field label="License Key" value={<span className="font-mono text-xs">{customer.license_key}</span>} />
+            <>
+              <Field
+                label="License Key"
+                value={
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-xs">{customer.license_key}</span>
+                    <button
+                      type="button"
+                      className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                      onClick={() => copy('key', customer.license_key!)}
+                    >
+                      {copiedField === 'key' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </span>
+                }
+              />
+              <Field
+                label="Download Link"
+                value={
+                  <button
+                    type="button"
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                    onClick={() => copy('link', POS_DOWNLOAD_URL)}
+                  >
+                    {copiedField === 'link' ? 'Copied!' : 'Copy link'}
+                  </button>
+                }
+              />
+            </>
           )}
         </div>
 
