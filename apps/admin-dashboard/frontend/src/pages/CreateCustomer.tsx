@@ -13,6 +13,8 @@ const FEATURE_LABELS: Record<string, string> = {
 };
 const ALL_FEATURES = Object.keys(FEATURE_LABELS);
 
+const POS_DOWNLOAD_URL = 'https://app.bloomswiftpos.com/downloads/BloomPOS-Setup.exe';
+
 interface Result {
   delivery_type: 'online' | 'offline';
   adminEmail: string;
@@ -35,6 +37,13 @@ export default function CreateCustomer() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copy = (field: string, value: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField((f) => (f === field ? null : f)), 1500);
+  };
 
   useEffect(() => {
     fetchPlans().then((data) => {
@@ -121,7 +130,7 @@ export default function CreateCustomer() {
           <p className="text-sm text-surface-600 mb-6">
             {result.delivery_type === 'online'
               ? 'Their POS is live. Share these login details with the customer.'
-              : 'Share this license key with the customer to activate the desktop app — their login is already set.'}
+              : 'Share this license key and the download link with the customer — their login is already set.'}
           </p>
           <div className="bg-surface-50 border border-surface-200 rounded-lg p-4 text-left text-sm mb-6 space-y-1">
             <div className="flex justify-between py-1">
@@ -133,9 +142,30 @@ export default function CreateCustomer() {
               <span className="font-medium text-surface-900">{result.adminPassword}</span>
             </div>
             {result.license_key && (
-              <div className="flex justify-between py-1">
+              <div className="flex justify-between items-center py-1">
                 <span className="text-surface-500">License key</span>
-                <span className="font-mono font-medium text-surface-900 text-xs">{result.license_key}</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-mono font-medium text-surface-900 text-xs">{result.license_key}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                    onClick={() => copy('key', result.license_key!)}
+                  >
+                    {copiedField === 'key' ? 'Copied!' : 'Copy'}
+                  </button>
+                </span>
+              </div>
+            )}
+            {result.delivery_type === 'offline' && (
+              <div className="flex justify-between items-center py-1">
+                <span className="text-surface-500">Download link</span>
+                <button
+                  type="button"
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                  onClick={() => copy('link', POS_DOWNLOAD_URL)}
+                >
+                  {copiedField === 'link' ? 'Copied!' : 'Copy link'}
+                </button>
               </div>
             )}
           </div>
