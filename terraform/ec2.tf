@@ -27,15 +27,15 @@ resource "aws_security_group" "ec2" {
   }
 
   ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
+    description = "POS app (moved off port 80, non-standard port)"
+    from_port   = 47821
+    to_port     = 47821
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
-    description = "HTTPS"
+    description = "HTTPS (kept standard for when a domain + cert are added)"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -43,9 +43,9 @@ resource "aws_security_group" "ec2" {
   }
 
   ingress {
-    description = "Admin dashboard frontend (temporary, until a domain lets us do subdomain-based routing on 443)"
-    from_port   = 8080
-    to_port     = 8080
+    description = "Admin dashboard frontend (moved off port 8080, non-standard port)"
+    from_port   = 47822
+    to_port     = 47822
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
