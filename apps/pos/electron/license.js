@@ -136,7 +136,13 @@ function activateLicense(licenseKey, serverUrl, userDataDir) {
       machine_name: machineName,
     });
 
-    const url = new URL('/api/verify', serverUrl.trim());
+    // Built by string concatenation, not new URL('/api/verify', base) — that
+    // form treats a leading '/' as an absolute path and silently discards any
+    // sub-path already in `base` (e.g. https://host/license-api), which
+    // breaks path-prefix-routed license servers (nginx location-based, no
+    // dedicated subdomain).
+    const base = serverUrl.trim().replace(/\/+$/, '');
+    const url = new URL(base + '/api/verify');
     const isHttps = url.protocol === 'https:';
     const lib = isHttps ? https : http;
 
