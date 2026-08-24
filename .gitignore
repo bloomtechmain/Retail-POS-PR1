@@ -57,3 +57,6 @@ apps/license-server/data/
 # ── Postgres data (local embedded) ────────────────────────────────────────────
 pgdata/
 *.pid
+
+# ── AWS ops reference (contains real production credentials) ─────────────────
+AWS_OPERATIONS.md
