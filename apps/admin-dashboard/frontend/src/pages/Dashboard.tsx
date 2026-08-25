@@ -10,8 +10,8 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: 'Enterprise',
 };
 
-const isAdminStats = (data: AdminDashboardStats | AgentDashboardStats): data is AdminDashboardStats =>
-  'total_agents' in data;
+const hasOwnStats = (data: AdminDashboardStats | AgentDashboardStats): data is AgentDashboardStats =>
+  'own' in data;
 
 function BreakdownBars({ items, labelFor }: { items: Array<{ count: number; [k: string]: unknown }>; labelFor: (item: any) => string }) {
   const total = items.reduce((sum, i) => sum + i.count, 0) || 1;
@@ -105,13 +105,16 @@ export default function Dashboard() {
   if (loading) return <PageLoader />;
   if (!stats) return null;
 
-  if (isAdminStats(stats)) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-surface-900">Platform Dashboard</h1>
-          <p className="text-surface-500 text-sm mt-1">Live status across every agent and customer on the platform.</p>
-        </div>
+  const own = hasOwnStats(stats) ? stats.own : null;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-surface-900">Platform Dashboard</h1>
+        <p className="text-surface-500 text-sm mt-1">
+          {own ? `Welcome back, ${staff?.name}. Live status across every agent and customer on the platform.` : 'Live status across every agent and customer on the platform.'}
+        </p>
+      </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="stat-card">
@@ -180,45 +183,44 @@ export default function Dashboard() {
           <h3 className="font-semibold text-surface-900 mb-4">Recent Customers</h3>
           <RecentCustomersTable customers={stats.recent_customers} showAgent />
         </div>
-      </div>
-    );
-  }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-surface-900">My Dashboard</h1>
-        <p className="text-surface-500 text-sm mt-1">Welcome back, {staff?.name}. Here's how your customers are doing.</p>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <div className="stat-card">
-          <span className="stat-label">My Customers</span>
-          <span className="stat-value">{stats.total_customers}</span>
-        </div>
-        {stats.delivery_breakdown.map((d) => (
-          <div className="stat-card" key={d.delivery_type}>
-            <span className="stat-label capitalize">{d.delivery_type}</span>
-            <span className="stat-value">{d.count}</span>
+      {own && (
+        <div className="space-y-4 pt-2 border-t border-surface-200">
+          <div className="pt-4">
+            <h2 className="text-lg font-bold text-surface-900">Your Customers</h2>
+            <p className="text-surface-500 text-sm mt-1">Your own customer-scoped numbers within the platform above.</p>
           </div>
-        ))}
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-5">
-          <h3 className="font-semibold text-surface-900 mb-4">Delivery Type</h3>
-          <BreakdownBars items={stats.delivery_breakdown} labelFor={(i) => i.delivery_type} />
-        </div>
-        <div className="card p-5">
-          <h3 className="font-semibold text-surface-900 mb-4">Plan Breakdown</h3>
-          <BreakdownBars items={stats.plan_breakdown} labelFor={(i) => PLAN_LABELS[i.plan_key] || i.plan_key} />
-        </div>
-      </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div className="stat-card">
+              <span className="stat-label">My Customers</span>
+              <span className="stat-value">{own.total_customers}</span>
+            </div>
+            {own.delivery_breakdown.map((d) => (
+              <div className="stat-card" key={d.delivery_type}>
+                <span className="stat-label capitalize">{d.delivery_type}</span>
+                <span className="stat-value">{d.count}</span>
+              </div>
+            ))}
+          </div>
 
-      <div className="card p-5">
-        <h3 className="font-semibold text-surface-900 mb-4">Recent Customers</h3>
-        <RecentCustomersTable customers={stats.recent_customers} showAgent={false} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card p-5">
+              <h3 className="font-semibold text-surface-900 mb-4">Delivery Type</h3>
+              <BreakdownBars items={own.delivery_breakdown} labelFor={(i) => i.delivery_type} />
+            </div>
+            <div className="card p-5">
+              <h3 className="font-semibold text-surface-900 mb-4">Plan Breakdown</h3>
+              <BreakdownBars items={own.plan_breakdown} labelFor={(i) => PLAN_LABELS[i.plan_key] || i.plan_key} />
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <h3 className="font-semibold text-surface-900 mb-4">Your Recent Customers</h3>
+            <RecentCustomersTable customers={own.recent_customers} showAgent={false} />
+          </div>
+        </div>
+      )}
       </div>
-    </div>
   );
 }

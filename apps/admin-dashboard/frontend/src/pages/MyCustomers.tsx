@@ -21,12 +21,15 @@ export default function MyCustomers() {
   const [customers, setCustomers] = useState<PlatformCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
+  const [mineOnly, setMineOnly] = useState(false);
 
   useEffect(() => {
     listCustomers().then(setCustomers).finally(() => setLoading(false));
   }, []);
 
-  const filtered = customers.filter((c) => filter === 'all' || c.delivery_type === filter);
+  const filtered = customers
+    .filter((c) => filter === 'all' || c.delivery_type === filter)
+    .filter((c) => !mineOnly || c.agent_id === staff?.id);
   const tabClass = (t: Filter) =>
     `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
       filter === t ? 'bg-primary-600 text-white' : 'text-surface-600 hover:bg-surface-100'
@@ -35,19 +38,28 @@ export default function MyCustomers() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-surface-900">
-          {staff?.role === 'admin' ? 'All Customers' : 'My Customers'}
-        </h1>
+        <h1 className="text-2xl font-bold text-surface-900">All Customers</h1>
         <p className="text-surface-500 text-sm mt-1">Every customer account created through this dashboard. Click a row for full details.</p>
       </div>
 
-      <div className="flex gap-1 mb-4">
-        <button className={tabClass('all')} onClick={() => setFilter('all')}>All ({customers.length})</button>
-        <button className={tabClass('online')} onClick={() => setFilter('online')}>
-          Online ({customers.filter((c) => c.delivery_type === 'online').length})
-        </button>
-        <button className={tabClass('offline')} onClick={() => setFilter('offline')}>
-          Offline ({customers.filter((c) => c.delivery_type === 'offline').length})
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex gap-1">
+          <button className={tabClass('all')} onClick={() => setFilter('all')}>All ({customers.length})</button>
+          <button className={tabClass('online')} onClick={() => setFilter('online')}>
+            Online ({customers.filter((c) => c.delivery_type === 'online').length})
+          </button>
+          <button className={tabClass('offline')} onClick={() => setFilter('offline')}>
+            Offline ({customers.filter((c) => c.delivery_type === 'offline').length})
+          </button>
+        </div>
+        <div className="w-px h-5 bg-surface-200 mx-1" />
+        <button
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            mineOnly ? 'bg-primary-600 text-white' : 'text-surface-600 hover:bg-surface-100'
+          }`}
+          onClick={() => setMineOnly((v) => !v)}
+        >
+          My Customers ({customers.filter((c) => c.agent_id === staff?.id).length})
         </button>
       </div>
 
@@ -58,7 +70,7 @@ export default function MyCustomers() {
               <th>Customer</th>
               <th>Delivery</th>
               <th>Plan</th>
-              {staff?.role === 'admin' && <th>Agent</th>}
+              <th>Agent</th>
               <th>Started</th>
               <th>Renewal</th>
             </tr>
@@ -85,7 +97,7 @@ export default function MyCustomers() {
                   <span className="capitalize">{c.plan_key}</span>
                   {c.custom_features && <span className="text-xs text-surface-400 ml-1">(customized)</span>}
                 </td>
-                {staff?.role === 'admin' && <td>{c.agent_name}</td>}
+                <td>{c.agent_name}</td>
                 <td className="text-surface-500 text-xs">{new Date(c.created_at).toLocaleDateString()}</td>
                 <td><RenewalBadge c={c} /></td>
               </tr>

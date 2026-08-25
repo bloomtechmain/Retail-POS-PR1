@@ -159,11 +159,13 @@ export interface AdminDashboardStats {
   daily_signups_last_14_days: Array<{ day: string; count: number }>;
 }
 
-export interface AgentDashboardStats {
-  total_customers: number;
-  delivery_breakdown: Array<{ delivery_type: string; count: number }>;
-  plan_breakdown: Array<{ plan_key: string; count: number }>;
-  recent_customers: RecentCustomer[];
+export interface AgentDashboardStats extends AdminDashboardStats {
+  own: {
+    total_customers: number;
+    delivery_breakdown: Array<{ delivery_type: string; count: number }>;
+    plan_breakdown: Array<{ plan_key: string; count: number }>;
+    recent_customers: RecentCustomer[];
+  };
 }
 
 export const fetchDashboard = async (): Promise<AdminDashboardStats | AgentDashboardStats> => {

@@ -9,7 +9,7 @@ router.post('/login', staffController.login);
 
 router.use(authenticateStaff);
 
-router.get('/agents', requireStaffRole('admin'), staffController.listAgents);
+router.get('/agents', staffController.listAgents);
 router.post('/agents', requireStaffRole('admin'), staffController.createAgent);
 router.patch('/agents/:id', requireStaffRole('admin'), staffController.setAgentActive);
 

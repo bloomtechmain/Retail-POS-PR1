@@ -14,12 +14,6 @@ function ProtectedRoutes() {
   return <Layout />;
 }
 
-function AdminOnly({ children }: { children: React.ReactNode }) {
-  const { staff } = useAuth();
-  if (staff?.role !== 'admin') return <Navigate to="/" replace />;
-  return <>{children}</>;
-}
-
 function AppRoutes() {
   return (
     <Routes>
@@ -29,7 +23,7 @@ function AppRoutes() {
         <Route path="/create-customer" element={<CreateCustomer />} />
         <Route path="/customers" element={<MyCustomers />} />
         <Route path="/customers/:id" element={<CustomerDetail />} />
-        <Route path="/agents" element={<AdminOnly><Agents /></AdminOnly>} />
+        <Route path="/agents" element={<Agents />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

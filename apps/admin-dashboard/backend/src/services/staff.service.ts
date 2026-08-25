@@ -64,10 +64,14 @@ export const createAgent = async (
   return result.rows[0];
 };
 
+// Returns every staff member (admins + agents) — "system users" for the
+// team-directory view both roles can now see. Creating/activating agents
+// stays admin-only (see requireStaffRole('admin') on those routes); this is
+// read-only visibility.
 export const listAgents = async () => {
   const result = await query(
     `SELECT id, name, email, role, is_active, created_at
-     FROM staff WHERE role = 'agent' AND deleted_at IS NULL ORDER BY created_at DESC`,
+     FROM staff WHERE deleted_at IS NULL ORDER BY role ASC, created_at DESC`,
     []
   );
   return result.rows;
@@ -168,19 +172,17 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
   };
 };
 
+// Both roles see every customer, platform-wide — an agent viewing/browsing
+// is not the same trust boundary as an agent mutating (reactivating, editing
+// features), which stay ownership-scoped below. `agent_name` lets the
+// frontend show "your customers" as a filter over this same full list
+// instead of a separate restricted query.
 export const listCustomers = async (staff: { staff_id: number; role: 'admin' | 'agent' }) => {
-  if (staff.role === 'admin') {
-    const result = await query(
-      `SELECT pc.*, s.name as agent_name
-       FROM platform_customers pc JOIN staff s ON s.id = pc.agent_id
-       ORDER BY pc.created_at DESC`,
-      []
-    );
-    return result.rows.map(withSubscriptionStatus);
-  }
   const result = await query(
-    `SELECT * FROM platform_customers WHERE agent_id = $1 ORDER BY created_at DESC`,
-    [staff.staff_id]
+    `SELECT pc.*, s.name as agent_name
+     FROM platform_customers pc JOIN staff s ON s.id = pc.agent_id
+     ORDER BY pc.created_at DESC`,
+    []
   );
   return result.rows.map(withSubscriptionStatus);
 };
@@ -193,11 +195,7 @@ export const getCustomerDetail = async (customerId: number, staff: { staff_id: n
     [customerId]
   );
   if (result.rows.length === 0) throw createError('Customer not found', 404);
-  const row = result.rows[0];
-  if (staff.role !== 'admin' && row.agent_id !== staff.staff_id) {
-    throw createError('You can only view customers you created', 403);
-  }
-  return withSubscriptionStatus(row);
+  return withSubscriptionStatus(result.rows[0]);
 };
 
 // Agent confirms payment was received (outside this system — cash/bank
@@ -327,8 +325,12 @@ export const getAdminDashboardStats = async () => {
   };
 };
 
+// Agents now see the same platform-wide overview admins do (getAdminDashboardStats),
+// plus their own customer-scoped numbers nested under `own` — the
+// previously agent-only view, kept rather than replaced.
 export const getAgentDashboardStats = async (agentId: number) => {
-  const [totals, deliveryBreakdown, planBreakdown, recentCustomers] = await Promise.all([
+  const [platform, totals, deliveryBreakdown, planBreakdown, recentCustomers] = await Promise.all([
+    getAdminDashboardStats(),
     query(`SELECT COUNT(*) AS total_customers FROM platform_customers WHERE agent_id = $1`, [agentId]),
     query(`SELECT delivery_type, COUNT(*) AS count FROM platform_customers WHERE agent_id = $1 GROUP BY delivery_type`, [agentId]),
     query(`SELECT plan_key, COUNT(*) AS count FROM platform_customers WHERE agent_id = $1 GROUP BY plan_key ORDER BY count DESC`, [agentId]),
@@ -340,9 +342,12 @@ export const getAgentDashboardStats = async (agentId: number) => {
   ]);
 
   return {
-    total_customers: Number(totals.rows[0].total_customers),
-    delivery_breakdown: deliveryBreakdown.rows.map((r) => ({ delivery_type: r.delivery_type, count: Number(r.count) })),
-    plan_breakdown: planBreakdown.rows.map((r) => ({ plan_key: r.plan_key, count: Number(r.count) })),
-    recent_customers: recentCustomers.rows,
+    ...platform,
+    own: {
+      total_customers: Number(totals.rows[0].total_customers),
+      delivery_breakdown: deliveryBreakdown.rows.map((r) => ({ delivery_type: r.delivery_type, count: Number(r.count) })),
+      plan_breakdown: planBreakdown.rows.map((r) => ({ plan_key: r.plan_key, count: Number(r.count) })),
+      recent_customers: recentCustomers.rows,
+    },
   };
 };
