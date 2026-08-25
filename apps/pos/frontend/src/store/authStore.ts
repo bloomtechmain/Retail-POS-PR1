@@ -8,10 +8,12 @@ interface AuthState {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  sandbox: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
   setUser: (user: User) => void;
+  setToken: (token: string, sandbox: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -21,6 +23,7 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       isAuthenticated: false,
       isLoading: false,
+      sandbox: false,
 
       login: async (email, password) => {
         set({ isLoading: true });
@@ -32,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
             token: data.token,
             isAuthenticated: true,
             isLoading: false,
+            sandbox: false,
           });
         } catch (err) {
           set({ isLoading: false });
@@ -41,7 +45,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         localStorage.removeItem('pos_token');
-        set({ user: null, token: null, isAuthenticated: false });
+        set({ user: null, token: null, isAuthenticated: false, sandbox: false });
       },
 
       hasPermission: (permission: string) => {
@@ -60,10 +64,15 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setUser: (user) => set({ user }),
+
+      setToken: (token, sandbox) => {
+        localStorage.setItem('pos_token', token);
+        set({ token, sandbox });
+      },
     }),
     {
       name: 'pos_auth',
-      partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated, sandbox: state.sandbox }),
     }
   )
 );

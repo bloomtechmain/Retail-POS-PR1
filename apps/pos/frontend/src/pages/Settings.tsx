@@ -23,10 +23,11 @@ const EMPTY: BusinessProfileValue = {
 export default function SettingsPage() {
   const toast = useToastStore();
   const { settings, setSettings, plans, fetchPlans, hasFeature } = useSettingsStore();
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, sandbox, setToken } = useAuthStore();
   const [profile, setProfile] = useState<BusinessProfileValue>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [switchingEnv, setSwitchingEnv] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState(user?.email || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -98,6 +99,29 @@ export default function SettingsPage() {
     }
   };
 
+  const switchEnvironment = async () => {
+    const goingToSandbox = !sandbox;
+    if (!confirm(
+      goingToSandbox
+        ? 'Switch to the sandbox? You\'ll see sample data instead of your real business data — nothing you add there affects your live account.'
+        : 'Switch back to your live account? You\'ll leave the sandbox and return to your real business data.'
+    )) return;
+
+    setSwitchingEnv(true);
+    try {
+      const r = await api.post('/auth/sandbox', { sandbox: goingToSandbox });
+      setToken(r.data.token, r.data.sandbox);
+      // Every store (settings, products, sales, ...) is scoped to whichever
+      // schema the token now points at — a hard reload guarantees nothing
+      // client-side is left showing stale data from the other environment.
+      window.location.href = '/pos';
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ message: string }>;
+      toast.error(axiosErr.response?.data?.message || 'Failed to switch environment');
+      setSwitchingEnv(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -119,6 +143,26 @@ export default function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-surface-900">Business Settings</h1>
         <p className="text-surface-500 text-sm mt-1">Update your shop name, logo, contact details, and currency.</p>
+      </div>
+
+      <div className={`card p-6 mb-6 ${sandbox ? 'ring-2 ring-amber-300' : ''}`}>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-semibold text-surface-900">Environment</h3>
+            <p className="text-surface-500 text-sm mt-0.5">
+              {sandbox
+                ? 'You are in the sandbox — sample data only, safe to experiment with.'
+                : 'You are on your live account. Switch to a sandbox to learn the system with sample data, without touching anything real.'}
+            </p>
+          </div>
+          <button
+            className={sandbox ? 'btn-primary' : 'btn-secondary'}
+            disabled={switchingEnv}
+            onClick={switchEnvironment}
+          >
+            {switchingEnv ? 'Switching...' : sandbox ? 'Switch to Live Data' : 'Switch to Sandbox'}
+          </button>
+        </div>
       </div>
 
       <div className="card p-6 space-y-6">

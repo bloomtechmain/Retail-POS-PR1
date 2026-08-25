@@ -1,11 +1,13 @@
 import { ReactNode, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useAuthStore } from '../../store/authStore';
 
 export function Layout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
   const { settings } = useSettingsStore();
+  const { sandbox } = useAuthStore();
   const hasShopBranding = Boolean(settings?.setup_completed && settings.business_name);
 
   return (
@@ -68,6 +70,12 @@ export function Layout({ children }: { children: ReactNode }) {
             )}
           </div>
         </header>
+
+        {sandbox && (
+          <div className="shrink-0 bg-amber-400 text-amber-950 text-xs sm:text-sm font-semibold text-center py-1.5 px-4 no-print">
+            SANDBOX MODE — this is sample data, not your real business. Switch back to Live from Settings.
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto">
           {children}

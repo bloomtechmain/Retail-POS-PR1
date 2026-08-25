@@ -401,6 +401,11 @@ export interface AuthPayload {
   // hosted multi-tenant backend.
   tenant_id?: number;
   schema_name?: string;
+  // Set via POST /auth/sandbox, never at login. When true, requests run
+  // against a sibling "<schema_name>_sandbox" schema (or the fixed schema
+  // "sandbox" for Electron, which has no schema_name at all) instead of
+  // the real one — see middleware/auth.ts's effective-schema computation.
+  sandbox?: boolean;
 }
 
 export interface PaginatedResult<T> {

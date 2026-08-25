@@ -7,6 +7,28 @@ import { CATEGORY_TEMPLATES } from '../data/categoryTemplates';
 import { isValidPlanKey, DEFAULT_PLAN_KEY, FeatureKey } from '../data/plans';
 import { runWithTenant } from '../config/tenantContext';
 
+// Starter data for a freshly-created sandbox — enough to click around and
+// try a sale immediately, not a full demo of every feature. Spans piece/kg/
+// litre units on purpose so the unit-of-measure feature is visible too.
+const SANDBOX_CATEGORIES = [
+  { name: 'Groceries', color: '#22c55e' },
+  { name: 'Beverages', color: '#3b82f6' },
+  { name: 'Household', color: '#f59e0b' },
+];
+const SANDBOX_PRODUCTS: Array<{
+  name: string; sku: string; category: string; unit_type: string;
+  cost_price: number; selling_price: number; current_stock: number;
+}> = [
+  { name: 'Basmati Rice 5kg', sku: 'SBX-001', category: 'Groceries', unit_type: 'piece', cost_price: 8.5, selling_price: 11.99, current_stock: 40 },
+  { name: 'Sugar', sku: 'SBX-002', category: 'Groceries', unit_type: 'kg', cost_price: 1.1, selling_price: 1.5, current_stock: 60 },
+  { name: 'Cooking Oil 1L', sku: 'SBX-003', category: 'Groceries', unit_type: 'litre', cost_price: 2.8, selling_price: 3.75, current_stock: 30 },
+  { name: 'Bottled Water 500ml', sku: 'SBX-004', category: 'Beverages', unit_type: 'piece', cost_price: 0.2, selling_price: 0.5, current_stock: 120 },
+  { name: 'Orange Juice 1L', sku: 'SBX-005', category: 'Beverages', unit_type: 'piece', cost_price: 1.6, selling_price: 2.4, current_stock: 25 },
+  { name: 'Instant Coffee', sku: 'SBX-006', category: 'Beverages', unit_type: 'piece', cost_price: 3.2, selling_price: 4.5, current_stock: 18 },
+  { name: 'Dish Soap', sku: 'SBX-007', category: 'Household', unit_type: 'piece', cost_price: 1.4, selling_price: 2.1, current_stock: 35 },
+  { name: 'Paper Towels', sku: 'SBX-008', category: 'Household', unit_type: 'piece', cost_price: 2.0, selling_price: 2.99, current_stock: 22 },
+];
+
 export interface ProvisionTenantInput {
   businessName: string;
   businessType?: string;
@@ -129,5 +151,76 @@ export const updateTenantFeatures = async (
       'UPDATE settings SET custom_features = $1, updated_at = NOW() WHERE id = 1',
       [customFeatures && customFeatures.length > 0 ? JSON.stringify(customFeatures) : null]
     );
+  });
+};
+
+// Called from POST /auth/sandbox the first time a given account switches
+// into sandbox mode. `liveSchemaName` is the schema the caller's real
+// (non-sandbox) token resolves to — a hosted tenant's "tenant_N", or
+// undefined for Electron, which has no tenant schema at all and only ever
+// uses "public" for its real data. The sandbox schema is always that
+// value's sibling: "tenant_N_sandbox", or the fixed name "sandbox" for
+// Electron. Idempotent — if the schema already exists (a previous switch
+// already created it), this is a no-op so nothing already added there by
+// the user is ever touched or reset.
+export const ensureSandboxSchema = async (liveSchemaName: string | undefined): Promise<string> => {
+  const sandboxSchema = liveSchemaName ? `${liveSchemaName}_sandbox` : 'sandbox';
+  if (!isSafeSchemaName(sandboxSchema)) throw createError('Invalid sandbox schema name', 500);
+
+  const existing = await query(
+    `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
+    [sandboxSchema]
+  );
+  if (existing.rows.length > 0) return sandboxSchema;
+
+  // Mirror the live plan/currency/business name into the sandbox once, at
+  // creation, so feature-gating and formatting match what the user actually
+  // has. This is a one-time snapshot, not kept in sync afterward — the
+  // sandbox is for learning the system, not a live mirror of the account.
+  const liveSettingsResult = await runWithTenant(liveSchemaName || 'public', () =>
+    query('SELECT * FROM settings WHERE id = 1', [])
+  );
+  const live = liveSettingsResult.rows[0];
+
+  return transaction(async (client: PoolClient) => {
+    await client.query(`CREATE SCHEMA "${sandboxSchema}"`);
+    await client.query(`SET search_path TO "${sandboxSchema}", public`);
+
+    for (const statement of TENANT_SCHEMA_STATEMENTS) {
+      await client.query(statement);
+    }
+
+    await client.query(
+      `INSERT INTO settings (business_name, business_type, plan_key, custom_features, currency_code, currency_symbol, setup_completed)
+       VALUES ($1,$2,$3,$4,$5,$6,TRUE)
+       ON CONFLICT (id) DO UPDATE SET business_name = $1, business_type = $2, plan_key = $3, custom_features = $4, currency_code = $5, currency_symbol = $6, setup_completed = TRUE`,
+      [
+        live?.business_name ? `${live.business_name} (Sandbox)` : 'My Sandbox Business',
+        live?.business_type || '',
+        live?.plan_key || DEFAULT_PLAN_KEY,
+        live?.custom_features ? JSON.stringify(live.custom_features) : null,
+        live?.currency_code || 'USD',
+        live?.currency_symbol || '$',
+      ]
+    );
+
+    const categoryIdByName: Record<string, number> = {};
+    for (const cat of SANDBOX_CATEGORIES) {
+      const result = await client.query(
+        'INSERT INTO categories (name, color) VALUES ($1, $2) RETURNING id',
+        [cat.name, cat.color]
+      );
+      categoryIdByName[cat.name] = result.rows[0].id;
+    }
+
+    for (const p of SANDBOX_PRODUCTS) {
+      await client.query(
+        `INSERT INTO products (name, sku, category_id, unit_type, cost_price, selling_price, current_stock, costing_method)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'weighted_average')`,
+        [p.name, p.sku, categoryIdByName[p.category] || null, p.unit_type, p.cost_price, p.selling_price, p.current_stock]
+      );
+    }
+
+    return sandboxSchema;
   });
 };

@@ -22,3 +22,10 @@ export const changePassword = async (req: AuthRequest, res: Response, next: Next
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (err) { next(err); }
 };
+
+export const switchSandbox = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await authService.switchSandbox(req.user!, !!req.body.sandbox);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+};

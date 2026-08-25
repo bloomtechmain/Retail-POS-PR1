@@ -7,5 +7,6 @@ const router = Router();
 router.post('/login', authController.login);
 router.get('/me', authenticate, authController.me);
 router.put('/change-password', authenticate, authController.changePassword);
+router.post('/sandbox', authenticate, authController.switchSandbox);
 
 export default router;

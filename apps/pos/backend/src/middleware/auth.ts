@@ -9,6 +9,15 @@ export interface AuthRequest extends Request {
   user?: AuthPayload;
 }
 
+// The schema a request should actually run against, given its decoded token.
+// Sandbox is a sibling schema, never the real one — "<schema_name>_sandbox"
+// for hosted tenants, or the fixed name "sandbox" for Electron (which has no
+// schema_name of its own, only ever the flat "public" schema live).
+const effectiveSchema = (decoded: AuthPayload): string | undefined => {
+  if (!decoded.sandbox) return decoded.schema_name;
+  return decoded.schema_name ? `${decoded.schema_name}_sandbox` : 'sandbox';
+};
+
 export const authenticate = (req: AuthRequest, res: Response, next: NextFunction): void => {
   try {
     const authHeader = req.headers.authorization;
@@ -20,15 +29,16 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
     const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
     req.user = decoded;
-    if (decoded.schema_name) {
+    const schema = effectiveSchema(decoded);
+    if (schema) {
       // Everything downstream of this call — every remaining middleware and
-      // the route handler itself — runs inside this tenant's context, so
+      // the route handler itself — runs inside this schema's context, so
       // every query()/transaction() call for the rest of the request
-      // automatically resolves against decoded.schema_name.
-      runWithTenant(decoded.schema_name, () => next());
+      // automatically resolves against it.
+      runWithTenant(schema, () => next());
     } else {
-      // Electron: no tenant context at all — every query already resolves
-      // against the local database's one flat "public" schema by default.
+      // Electron, live mode: no tenant context at all — every query already
+      // resolves against the local database's one flat "public" schema.
       next();
     }
   } catch {
@@ -52,8 +62,9 @@ export const optionalAuthenticate = (req: AuthRequest, res: Response, next: Next
   try {
     const decoded = verifyToken(authHeader.split(' ')[1]);
     req.user = decoded;
-    if (decoded.schema_name) {
-      runWithTenant(decoded.schema_name, () => next());
+    const schema = effectiveSchema(decoded);
+    if (schema) {
+      runWithTenant(schema, () => next());
     } else {
       next();
     }

@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import { query } from '../config/database';
 import { signToken } from '../utils/jwt';
 import { createError } from '../middleware/error';
+import { AuthPayload } from '../types';
+import { ensureSandboxSchema } from './tenant.service';
 
 export const loginUser = async (email: string, password: string) => {
   const result = await query(
@@ -90,6 +92,31 @@ export const loginUser = async (email: string, password: string) => {
       permissions: user.permissions,
     },
   };
+};
+
+// Reissues the caller's token with the sandbox flag flipped — same
+// identity, same real schema_name underneath, just a different `sandbox`
+// claim. Switching to sandbox lazily provisions that schema on first use
+// (see ensureSandboxSchema); switching back to live is just re-signing,
+// nothing to provision. `user` is always req.user from an already-verified
+// token — never derived from anything the client sent.
+export const switchSandbox = async (user: AuthPayload, sandbox: boolean) => {
+  if (sandbox) {
+    await ensureSandboxSchema(user.schema_name);
+  }
+
+  const token = signToken({
+    id: user.id,
+    email: user.email,
+    role_id: user.role_id,
+    role_name: user.role_name,
+    permissions: user.permissions,
+    tenant_id: user.tenant_id,
+    schema_name: user.schema_name,
+    sandbox,
+  });
+
+  return { token, sandbox };
 };
 
 export const changePassword = async (userId: number, currentPassword: string, newPassword: string) => {
