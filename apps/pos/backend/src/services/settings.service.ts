@@ -4,7 +4,7 @@ import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
 import { Settings } from '../types';
 import { CATEGORY_TEMPLATES } from '../data/categoryTemplates';
-import { getPlanCatalog, isValidPlanKey, DEFAULT_PLAN_KEY } from '../data/plans';
+import { getPlanCatalog, DEFAULT_PLAN_KEY } from '../data/plans';
 
 // settings is per-tenant on the hosted backend (public.* only for the
 // Electron flat-schema app, which has no tenant context at all by design —
@@ -48,6 +48,11 @@ export const consumePresetAdminCredentials = (): { email: string; password: stri
   }
 };
 
+// plan_key is deliberately not accepted here — it's set once by an agent/
+// admin at provisioning time (see tenant.service.ts's provisionTenant) and
+// pushed later only via the admin-dashboard's "edit features" flow. A
+// tenant's own admin user must never be able to change their own package
+// through this self-service endpoint.
 export const updateSettings = async (
   data: Partial<{
     business_name: string;
@@ -59,20 +64,15 @@ export const updateSettings = async (
     currency_code: string;
     currency_symbol: string;
     vat_registration_number: string;
-    plan_key: string;
   }>
 ): Promise<Settings> => {
   const existing = await getSettings();
-
-  if (data.plan_key !== undefined && !isValidPlanKey(data.plan_key)) {
-    throw createError('Invalid plan', 400);
-  }
 
   const result = await query(
     `UPDATE settings SET
        business_name = $1, business_type = $2, logo_data_url = $3, address = $4,
        phone = $5, email = $6, currency_code = $7, currency_symbol = $8,
-       vat_registration_number = $9, plan_key = $10, updated_at = NOW()
+       vat_registration_number = $9, updated_at = NOW()
      WHERE id = 1 RETURNING *`,
     [
       data.business_name?.trim() || existing.business_name,
@@ -84,7 +84,6 @@ export const updateSettings = async (
       data.currency_code?.trim() || existing.currency_code,
       data.currency_symbol?.trim() || existing.currency_symbol,
       data.vat_registration_number ?? existing.vat_registration_number,
-      data.plan_key ?? existing.plan_key,
     ]
   );
   return result.rows[0];
@@ -100,6 +99,9 @@ export const listTemplates = () => {
 
 export const listPlans = () => getPlanCatalog();
 
+// plan_key is not accepted here either, for the same reason as updateSettings
+// above — first-run setup must never let a tenant's own admin pick or change
+// their package.
 export const completeSetup = async (data: {
   business_name?: string;
   business_type?: string;
@@ -110,12 +112,7 @@ export const completeSetup = async (data: {
   currency_code?: string;
   currency_symbol?: string;
   template_key?: string;
-  plan_key?: string;
 }): Promise<Settings> => {
-  if (data.plan_key !== undefined && !isValidPlanKey(data.plan_key)) {
-    throw createError('Invalid plan', 400);
-  }
-
   return transaction(async (client: PoolClient) => {
     const existingResult = await client.query('SELECT * FROM settings WHERE id = 1 FOR UPDATE');
     if (existingResult.rows.length === 0) throw createError('Settings not found', 404);
@@ -125,7 +122,7 @@ export const completeSetup = async (data: {
       `UPDATE settings SET
          business_name = $1, business_type = $2, logo_data_url = $3, address = $4,
          phone = $5, email = $6, currency_code = $7, currency_symbol = $8,
-         plan_key = $9, setup_completed = TRUE, updated_at = NOW()
+         setup_completed = TRUE, updated_at = NOW()
        WHERE id = 1 RETURNING *`,
       [
         data.business_name?.trim() || existing.business_name,
@@ -136,7 +133,6 @@ export const completeSetup = async (data: {
         data.email ?? existing.email,
         data.currency_code?.trim() || existing.currency_code,
         data.currency_symbol?.trim() || existing.currency_symbol,
-        data.plan_key || existing.plan_key || DEFAULT_PLAN_KEY,
       ]
     );
 

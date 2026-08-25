@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { BusinessProfileForm, BusinessProfileValue } from '../components/settings/BusinessProfileForm';
 import { TaxRatesManager } from '../components/settings/TaxRatesManager';
-import { PlanPicker } from '../components/settings/PlanPicker';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -28,8 +27,6 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<BusinessProfileValue>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('basic');
-  const [switchingPlan, setSwitchingPlan] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState(user?.email || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -55,24 +52,9 @@ export default function SettingsPage() {
         currency_symbol: settings.currency_symbol || '$',
         vat_registration_number: settings.vat_registration_number || '',
       });
-      setSelectedPlan(settings.plan_key || 'basic');
       setLoading(false);
     }
   }, [settings]);
-
-  const switchPlan = async () => {
-    setSwitchingPlan(true);
-    try {
-      const r = await api.put('/settings', { plan_key: selectedPlan });
-      setSettings(r.data.data);
-      toast.success(`Switched to the ${plans.find(p => p.key === selectedPlan)?.name || selectedPlan} plan`);
-    } catch (err) {
-      const axiosErr = err as AxiosError<{ message: string }>;
-      toast.error(axiosErr.response?.data?.message || 'Failed to switch plan');
-    } finally {
-      setSwitchingPlan(false);
-    }
-  };
 
   const saveCredentials = async () => {
     if (newPassword && !currentPassword) {
@@ -202,18 +184,13 @@ export default function SettingsPage() {
       </div>
 
       <div className="card p-6 mt-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h3 className="font-semibold text-surface-900">Subscription Plan</h3>
-            <p className="text-surface-500 text-sm mt-0.5">Switch plans any time — takes effect immediately.</p>
-          </div>
-          {selectedPlan !== settings?.plan_key && (
-            <button onClick={switchPlan} disabled={switchingPlan} className="btn-primary btn-sm">
-              {switchingPlan ? 'Switching...' : `Switch to ${plans.find(p => p.key === selectedPlan)?.name || selectedPlan}`}
-            </button>
-          )}
+        <h3 className="font-semibold text-surface-900">Subscription Plan</h3>
+        <p className="text-surface-500 text-sm mt-0.5 mb-3">
+          Your package is set by your agent — contact them to upgrade or change it.
+        </p>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 text-primary-700 text-sm font-medium">
+          {plans.find((p) => p.key === settings?.plan_key)?.name || settings?.plan_key}
         </div>
-        <PlanPicker plans={plans} selected={selectedPlan} onSelect={setSelectedPlan} currentKey={settings?.plan_key} />
       </div>
 
       {hasFeature('vat_invoice') && (
