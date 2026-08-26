@@ -31,6 +31,7 @@ let splashWindow = null;
 let activationWindow = null;
 let backendProcess = null;
 let pgInstance = null;
+let backendExitInfo = null; // set once backendProcess exits, read by waitForBackend for diagnostics
 
 // ─── IPC: Activation ─────────────────────────────────────────────────────────
 ipcMain.handle('activate-license', async (_event, { key, serverUrl }) => {
@@ -157,8 +158,12 @@ async function startApp() {
     await startBackend();
 
     // Step 3: Wait for backend
+    // 45s budget, not 15s — a fresh install's first launch can be genuinely
+    // slow (antivirus scanning the newly-extracted postgres binary, cold
+    // disk cache), and 15s was tight enough to false-positive on real,
+    // still-starting installs.
     updateSplash('Connecting…', 75);
-    await waitForBackend(30, 500);
+    await waitForBackend(90, 500);
 
     // Step 4: Run DB migrations if needed
     updateSplash('Ready!', 100);
@@ -418,6 +423,7 @@ function startBackend() {
       }
     }
 
+    backendExitInfo = null;
     const backendLogPath = path.join(app.getPath('userData'), 'backend.log');
     backendProcess = fork(backendEntry, [], {
       env,
@@ -434,6 +440,11 @@ function startBackend() {
     });
 
     backendProcess.on('exit', (code, signal) => {
+      backendExitInfo = { code, signal };
+      // Only during normal operation (main window already up) do we show a
+      // dedicated crash dialog here — a pre-startup exit is instead surfaced
+      // through waitForBackend()'s own rejection (see backendExitInfo there),
+      // which is the one dialog the user actually sees during startup.
       if (code !== 0 && mainWindow) {
         let detail = `Exit code: ${code}`;
         try {
@@ -450,11 +461,30 @@ function startBackend() {
 }
 
 // ─── Wait For Backend ────────────────────────────────────────────────────────
+function readBackendLogTail() {
+  try {
+    const backendLogPath = path.join(app.getPath('userData'), 'backend.log');
+    const log = fs.readFileSync(backendLogPath, 'utf8').trim().slice(-800);
+    return log || '(backend.log is empty)';
+  } catch {
+    return '(backend.log not found)';
+  }
+}
+
 function waitForBackend(maxRetries = 30, intervalMs = 500) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
 
     function tryPing() {
+      // If the backend process has already died, don't burn the remaining
+      // retry budget pinging a port nothing is listening on — fail now with
+      // the real reason instead of a generic timeout 15s later.
+      if (backendExitInfo) {
+        reject(new Error(
+          `Backend process exited early (code: ${backendExitInfo.code}, signal: ${backendExitInfo.signal})\n\n${readBackendLogTail()}`
+        ));
+        return;
+      }
       http.get(`http://localhost:${BACKEND_PORT}/health`, (res) => {
         if (res.statusCode === 200) {
           resolve();
@@ -467,7 +497,9 @@ function waitForBackend(maxRetries = 30, intervalMs = 500) {
     function retry() {
       attempts++;
       if (attempts >= maxRetries) {
-        reject(new Error(`Backend did not become ready after ${maxRetries} attempts`));
+        reject(new Error(
+          `Backend did not become ready after ${maxRetries} attempts\n\n${readBackendLogTail()}`
+        ));
       } else {
         setTimeout(tryPing, intervalMs);
       }
