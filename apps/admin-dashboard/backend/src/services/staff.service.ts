@@ -123,6 +123,12 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
   let tenantId: number | null = null;
   let licenseKey: string | null = null;
 
+  // Computed once up front so the license's embedded hard-cutoff and the
+  // ledger's subscription_end_date agree exactly — two separate NOW() calls
+  // (one on license-server, one in the INSERT below) could otherwise drift
+  // by however many milliseconds pass in between.
+  const subscriptionEndDate = (await query(`SELECT NOW() + INTERVAL '1 month' AS end_date`, [])).rows[0].end_date;
+
   if (input.deliveryType === 'online') {
     const result = await provisionOnlineTenant({
       businessName: input.customerName.trim(),
@@ -140,6 +146,9 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       notes: input.notes,
       preset_admin_email: input.adminEmail.trim(),
       preset_admin_password: input.adminPassword,
+      // 1 week grace beyond the subscription month — enforced locally by
+      // Electron on every launch (see license.js's checkLicense()).
+      expiresAt: new Date(new Date(subscriptionEndDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     });
     licenseKey = result.licenseKey;
   }
@@ -147,7 +156,7 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
   const row = await query(
     `INSERT INTO platform_customers
        (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW() + INTERVAL '1 month')
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING *`,
     [
       agentId,
@@ -160,6 +169,7 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       tenantId,
       licenseKey,
       input.notes || null,
+      subscriptionEndDate,
     ]
   );
 
@@ -199,11 +209,19 @@ export const getCustomerDetail = async (customerId: number, staff: { staff_id: n
 };
 
 // Agent confirms payment was received (outside this system — cash/bank
-// transfer, checked manually) and renews the customer's package by another
-// month from today. For offline customers this also restores the license
-// (see licenseServerClient.setLicenseActive) — blocks/unblocks future
-// activations; cannot retroactively affect an already-running install (see
-// plan notes on Electron's one-time activation check).
+// transfer, checked manually) and renews the customer's package for another
+// cycle. The next cycle is anchored to the END of the current one, not to
+// whenever during the grace week the renewal actually happens — otherwise a
+// customer who always pays a few days late would slowly drift later and
+// later each month. Only falls back to "a month from today" if the
+// anchored date would already be in the past (a genuinely lapsed renewal).
+//
+// Online: same anchored date, nothing else changes.
+// Offline: the license itself is single-use-per-cycle — Electron enforces
+// the hard cutoff locally (license.js's checkLicense(), no network needed),
+// so restoring the OLD key can't un-expire an already-lapsed install. A
+// renewal must issue a genuinely NEW key instead, which the agent/admin
+// then hands to the customer to re-activate with (see CustomerDetail.tsx).
 export const reactivateCustomer = async (customerId: number, staff: { staff_id: number; role: 'admin' | 'agent' }) => {
   const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
   if (existing.rows.length === 0) throw createError('Customer not found', 404);
@@ -212,16 +230,35 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
     throw createError('You can only reactivate customers you created', 403);
   }
 
+  const anchoredEnd = (
+    await query(
+      `SELECT CASE
+         WHEN subscription_end_date + INTERVAL '1 month' > NOW()
+           THEN subscription_end_date + INTERVAL '1 month'
+         ELSE NOW() + INTERVAL '1 month'
+       END AS end_date
+       FROM platform_customers WHERE id = $1`,
+      [customerId]
+    )
+  ).rows[0].end_date;
+
+  let newLicenseKey: string | null = null;
   if (row.delivery_type === 'offline' && row.license_key) {
-    await setLicenseActive(row.license_key, true);
+    const result = await generateLicense({
+      customer_name: row.customer_name,
+      customer_email: row.customer_email,
+      expiresAt: new Date(new Date(anchoredEnd).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    newLicenseKey = result.licenseKey;
+    await setLicenseActive(row.license_key, false);
   }
 
   const result = await query(
     `UPDATE platform_customers
-     SET subscription_end_date = NOW() + INTERVAL '1 month', last_payment_at = NOW()
+     SET subscription_end_date = $2, last_payment_at = NOW()${newLicenseKey ? ', license_key = $3' : ''}
      WHERE id = $1
      RETURNING *`,
-    [customerId]
+    newLicenseKey ? [customerId, anchoredEnd, newLicenseKey] : [customerId, anchoredEnd]
   );
   return withSubscriptionStatus(result.rows[0]);
 };

@@ -59,15 +59,21 @@ export function getPublicKey(): crypto.KeyObject {
  *   lk: "RPOS-...",              // license key
  *   fp: "sha256hexhash",         // machine fingerprint
  *   iat: 1234567890,             // issued at (unix timestamp)
+ *   exp: 1234567890,             // optional: hard cutoff (unix timestamp) — see license.js's checkLicense()
  * }
  *
  * Token format: base64url(payload) + "." + base64url(signature)
  */
-export function createActivationToken(licenseKey: string, machineFingerprint: string): string {
+export function createActivationToken(
+  licenseKey: string,
+  machineFingerprint: string,
+  expiresAt?: string | null
+): string {
   const payload = JSON.stringify({
     lk: licenseKey,
     fp: machineFingerprint,
     iat: Math.floor(Date.now() / 1000),
+    ...(expiresAt ? { exp: Math.floor(new Date(expiresAt).getTime() / 1000) } : {}),
   });
 
   const payloadB64 = Buffer.from(payload).toString('base64url');

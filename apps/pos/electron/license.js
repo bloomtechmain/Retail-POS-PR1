@@ -81,6 +81,16 @@ function checkLicense(userDataDir) {
       return null;
     }
 
+    // Hard cutoff (subscription month + 1 week grace), checked locally on
+    // every launch — no network call needed, works fully offline. Treating
+    // this the same as "no valid license" reopens the activation window
+    // (see main.js's app.whenReady()), where the customer enters the new
+    // key their agent generated for the next cycle.
+    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+      console.warn('[License] License has expired — re-activation required');
+      return null;
+    }
+
     return payload;
   } catch (err) {
     console.error('[License] Error reading token:', err.message);

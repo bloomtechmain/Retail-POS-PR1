@@ -60,8 +60,16 @@ export const generateLicense = async (input: {
   customer_name: string;
   customer_email: string;
   notes?: string;
-  preset_admin_email: string;
-  preset_admin_password: string;
+  // Only set on a brand-new customer's first key — a renewal must never
+  // reset an already-working local login, so reactivateCustomer's offline
+  // branch omits these entirely.
+  preset_admin_email?: string;
+  preset_admin_password?: string;
+  // Hard cutoff (ISO string) embedded in the signed token — see
+  // staff.service.ts for how this is computed (subscription_end_date + 1
+  // week grace) and license-server's licenseUtils.ts for how Electron
+  // enforces it locally, offline, on every launch.
+  expiresAt?: string;
 }): Promise<{ licenseKey: string }> => {
   const data = await request('/api/admin/licenses/generate', {
     customer_name: input.customer_name,
@@ -70,6 +78,7 @@ export const generateLicense = async (input: {
     notes: input.notes,
     preset_admin_email: input.preset_admin_email,
     preset_admin_password: input.preset_admin_password,
+    expires_at: input.expiresAt,
   });
   const keys: string[] = data.keys || [];
   if (keys.length === 0) throw createError('License server did not return a license key.', 502);
@@ -78,9 +87,12 @@ export const generateLicense = async (input: {
 
 // Restores (or, if ever needed, revokes) a license's activation ability —
 // blocks/unblocks future activations only. Cannot retroactively cut off a
-// desktop install that already activated, since Electron never re-checks
-// after its first successful activation (see staff.service.ts's
-// reactivateCustomer for the full explanation).
+// desktop install that's already running on an unexpired token — Electron
+// re-checks its embedded hard-cutoff locally on every launch (see
+// license-server's licenseUtils.ts createActivationToken), but that's a
+// fixed date baked in at activation time, not something a later PATCH here
+// can change. Reissuing a genuinely new key (reactivateCustomer's offline
+// branch) is what actually forces re-activation.
 export const setLicenseActive = async (licenseKey: string, isActive: boolean): Promise<void> => {
   await request(`/api/admin/licenses/${licenseKey}`, { is_active: isActive }, 'PATCH');
 };

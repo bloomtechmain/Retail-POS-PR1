@@ -123,7 +123,7 @@
     <div class="logo">
       <img src="../build-assets/logo-512.png" style="width:64px;height:64px;object-fit:contain;margin-bottom:8px;" />
       <h1>BloomPOS</h1>
-      <p>Product Activation</p>
+      <p id="subtitle">Product Activation</p>
     </div>
 
     <div class="field">
@@ -149,6 +149,10 @@
 
   <script>
     const { ipcRenderer } = require('electron');
+
+    if (new URLSearchParams(location.search).get('reason') === 'expired') {
+      document.getElementById('subtitle').textContent = 'Your subscription needs renewing — enter your new license key';
+    }
 
     function formatKey(input) {
       // Auto-uppercase and insert dashes at right positions

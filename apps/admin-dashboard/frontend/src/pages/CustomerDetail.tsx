@@ -101,8 +101,11 @@ export default function CustomerDetail() {
   };
 
   const handleReactivate = async () => {
-    if (!id) return;
-    if (!confirm('Confirm payment has been received from this customer and renew their package for another month?')) return;
+    if (!id || !customer) return;
+    const message = customer.delivery_type === 'offline'
+      ? "Confirm payment has been received and renew this customer's package? A NEW license key will be generated — the old one stops working, so you'll need to give this new key to the customer to re-activate their app."
+      : 'Confirm payment has been received from this customer and renew their package for another month?';
+    if (!confirm(message)) return;
     setReactivating(true);
     try {
       const updated = await reactivateCustomer(Number(id));
@@ -197,7 +200,11 @@ export default function CustomerDetail() {
             <div className="text-xs text-surface-500 mt-0.5">Renews on {renewalDate.toLocaleDateString()}</div>
           </div>
           <button className="btn-primary" disabled={reactivating} onClick={handleReactivate}>
-            {reactivating ? 'Reactivating...' : 'Reactivate (Payment Received)'}
+            {reactivating
+              ? 'Renewing...'
+              : customer.delivery_type === 'offline'
+                ? 'Renew (Generate New License Key)'
+                : 'Reactivate (Payment Received)'}
           </button>
         </div>
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}

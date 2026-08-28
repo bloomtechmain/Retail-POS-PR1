@@ -69,7 +69,13 @@ app.whenReady().then(async () => {
   // Check license first
   const payload = checkLicense(app.getPath('userData'));
   if (!payload) {
-    showActivationWindow();
+    // A token file existing but failing checkLicense() (vs. no file at all)
+    // means this isn't a genuine first run — most likely the month+week
+    // grace period lapsed. Different copy on the activation screen so a
+    // renewing customer isn't left thinking something broke.
+    const tokenPath = path.join(app.getPath('userData'), 'activation.token');
+    const reason = fs.existsSync(tokenPath) ? 'expired' : 'first-run';
+    showActivationWindow(reason);
   } else {
     await startApp();
   }
@@ -83,7 +89,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', cleanup);
 
 // ─── Activation Window ────────────────────────────────────────────────────────
-function showActivationWindow() {
+function showActivationWindow(reason) {
   activationWindow = new BrowserWindow({
     width: 500,
     height: 560,
@@ -98,7 +104,7 @@ function showActivationWindow() {
     },
   });
 
-  activationWindow.loadFile(path.join(__dirname, 'activation.html'));
+  activationWindow.loadFile(path.join(__dirname, 'activation.html'), reason ? { query: { reason } } : undefined);
   activationWindow.once('ready-to-show', () => activationWindow.show());
 
   activationWindow.on('closed', () => {

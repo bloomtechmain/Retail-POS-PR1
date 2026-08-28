@@ -52,6 +52,7 @@ router.post('/', (req: Request, res: Response) => {
         activation_token: string | null;
         preset_admin_email: string | null;
         preset_admin_password: string | null;
+        expires_at: string | null;
       }
     | undefined;
 
@@ -64,6 +65,14 @@ router.post('/', (req: Request, res: Response) => {
   if (!license.is_active) {
     logAttempt(key, machine_fingerprint, false, 'License revoked');
     res.status(403).json({ success: false, error: 'This license has been revoked' });
+    return;
+  }
+
+  // Covers both first activation and same-machine re-activation below —
+  // an already-lapsed key must never hand out a usable token either way.
+  if (license.expires_at && new Date(license.expires_at).getTime() < Date.now()) {
+    logAttempt(key, machine_fingerprint, false, 'License expired');
+    res.status(403).json({ success: false, error: 'This license has expired. Contact your agent for a new key.' });
     return;
   }
 
@@ -86,7 +95,7 @@ router.post('/', (req: Request, res: Response) => {
 
   // First-time activation — sign and store
   try {
-    const token = createActivationToken(key, machine_fingerprint);
+    const token = createActivationToken(key, machine_fingerprint, license.expires_at);
     // Servable exactly once: captured before the same statement clears them,
     // so a re-activation later (handled above, same-machine only) never
     // re-serves them — by then the customer is expected to have already

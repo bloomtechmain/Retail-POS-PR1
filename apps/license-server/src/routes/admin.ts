@@ -43,6 +43,7 @@ router.post('/licenses/generate', requireAuth, (req: AuthRequest, res: Response)
     notes,
     preset_admin_email,
     preset_admin_password,
+    expires_at,
   } = req.body as {
     customer_name?: string;
     customer_email?: string;
@@ -54,15 +55,20 @@ router.post('/licenses/generate', requireAuth, (req: AuthRequest, res: Response)
     // sensibly apply to more than one activation.
     preset_admin_email?: string;
     preset_admin_password?: string;
+    // Hard cutoff (ISO string) — admin-dashboard computes this from
+    // platform_customers.subscription_end_date + 1 week grace. Only
+    // meaningful for a single key, same restriction as preset creds.
+    expires_at?: string;
   };
 
   const qty = Math.min(Math.max(1, Number(count) || 1), 100);
   const applyPreset = qty === 1 && preset_admin_email && preset_admin_password;
+  const applyExpiry = qty === 1 && expires_at;
   const keys: string[] = [];
 
   const insert = db.prepare(
-    `INSERT INTO licenses (license_key, customer_name, customer_email, notes, preset_admin_email, preset_admin_password)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO licenses (license_key, customer_name, customer_email, notes, preset_admin_email, preset_admin_password, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
   db.exec('BEGIN');
@@ -81,7 +87,8 @@ router.post('/licenses/generate', requireAuth, (req: AuthRequest, res: Response)
         customer_email || null,
         notes || null,
         applyPreset ? preset_admin_email : null,
-        applyPreset ? preset_admin_password : null
+        applyPreset ? preset_admin_password : null,
+        applyExpiry ? expires_at : null
       );
       keys.push(key);
     }

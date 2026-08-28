@@ -68,6 +68,13 @@ if (!hasColumn('preset_admin_email')) {
 if (!hasColumn('preset_admin_password')) {
   db.exec(`ALTER TABLE licenses ADD COLUMN preset_admin_password TEXT`);
 }
+// Hard cutoff (subscription_end_date + 1 week grace, computed by
+// admin-dashboard) — embedded into the signed activation token's `exp`
+// claim so an offline install can enforce it locally on every launch,
+// with no live call back to this server after first activation.
+if (!hasColumn('expires_at')) {
+  db.exec(`ALTER TABLE licenses ADD COLUMN expires_at TEXT`);
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS activation_log (
