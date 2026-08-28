@@ -4,15 +4,59 @@ import { signToken } from '../utils/jwt';
 import { createError } from '../middleware/error';
 import { AuthPayload } from '../types';
 import { ensureSandboxSchema } from './tenant.service';
+import { peekPresetAdminCredentials, consumePresetAdminCredentials } from './settings.service';
+
+// Electron-only. On a fresh offline install, the only account that exists
+// is the hardcoded bootstrap admin from database/schema.sql
+// (admin@retailpos.com) — the customer's real login, chosen by their agent
+// at license generation, isn't in `users` at all until Setup.tsx (or this)
+// applies it. If a customer's very first login attempt exactly matches the
+// still-unclaimed preset, rename the bootstrap account to it right here
+// instead of requiring them to first discover and log in as the generic
+// default. A non-matching attempt leaves the preset file untouched, so a
+// typo doesn't burn the one real credential the customer has.
+const tryApplyPresetLogin = async (email: string, password: string): Promise<number | null> => {
+  const preset = peekPresetAdminCredentials();
+  if (!preset) return null;
+  if (preset.email.toLowerCase() !== email.trim().toLowerCase() || preset.password !== password) return null;
+
+  const existing = await query(
+    `SELECT u.id FROM users u JOIN roles r ON u.role_id = r.id
+     WHERE r.name = 'admin' AND u.deleted_at IS NULL ORDER BY u.id ASC LIMIT 1`,
+    []
+  );
+  if (existing.rows.length === 0) return null;
+
+  consumePresetAdminCredentials(); // now that it's confirmed matched, burn it
+  const hashed = await bcrypt.hash(password, 10);
+  await query('UPDATE users SET email = $1, password = $2, updated_at = NOW() WHERE id = $3', [
+    email.trim(),
+    hashed,
+    existing.rows[0].id,
+  ]);
+  return existing.rows[0].id;
+};
 
 export const loginUser = async (email: string, password: string) => {
-  const result = await query(
+  let result = await query(
     `SELECT u.*, r.name as role_name, r.permissions
      FROM users u
      JOIN roles r ON u.role_id = r.id
      WHERE u.email = $1 AND u.deleted_at IS NULL`,
     [email]
   );
+
+  if (result.rows.length === 0) {
+    const appliedUserId = await tryApplyPresetLogin(email, password);
+    if (appliedUserId) {
+      result = await query(
+        `SELECT u.*, r.name as role_name, r.permissions
+         FROM users u JOIN roles r ON u.role_id = r.id
+         WHERE u.id = $1`,
+        [appliedUserId]
+      );
+    }
+  }
 
   if (result.rows.length === 0) {
     throw createError('Invalid email or password', 401);

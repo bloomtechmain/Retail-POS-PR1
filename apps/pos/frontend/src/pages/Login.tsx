@@ -7,8 +7,8 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AxiosError } from 'axios';
 
 export default function Login() {
-  const [email, setEmail] = useState('admin@retailpos.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const { login, isLoading } = useAuthStore();
   const { error: showError } = useToastStore();
   const { settings } = useSettingsStore();
@@ -57,7 +57,7 @@ export default function Login() {
                 className="input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@retailpos.com"
+                placeholder="you@business.com"
                 required
                 autoFocus
               />
@@ -90,10 +90,6 @@ export default function Login() {
               )}
             </button>
           </form>
-
-          <p className="text-center text-xs text-surface-400 mt-6">
-            Default: admin@retailpos.com / admin123
-          </p>
         </div>
       </div>
     </div>

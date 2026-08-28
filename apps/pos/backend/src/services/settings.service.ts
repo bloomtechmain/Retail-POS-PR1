@@ -48,6 +48,19 @@ export const consumePresetAdminCredentials = (): { email: string; password: stri
   }
 };
 
+// Same file, but non-destructive — used by loginUser to check a login
+// attempt against the preset without burning it on a mistyped guess (a
+// wrong attempt must not delete the one real credential the customer has).
+export const peekPresetAdminCredentials = (): { email: string; password: string } | null => {
+  const filePath = process.env.PRESET_CREDENTIALS_PATH;
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as { email: string; password: string };
+  } catch {
+    return null;
+  }
+};
+
 // plan_key is deliberately not accepted here — it's set once by an agent/
 // admin at provisioning time (see tenant.service.ts's provisionTenant) and
 // pushed later only via the admin-dashboard's "edit features" flow. A
