@@ -92,6 +92,7 @@ export default function MyCustomers() {
                   <span className={c.delivery_type === 'online' ? 'badge-blue' : 'badge-gray'}>
                     {c.delivery_type}
                   </span>
+                  {!c.is_active && <span className="badge-red ml-1.5">Deactivated</span>}
                 </td>
                 <td>
                   <span className="capitalize">{c.plan_key}</span>

@@ -26,24 +26,34 @@ const login = async (): Promise<string> => {
   return cachedToken!;
 };
 
-const request = async (path: string, body: Record<string, unknown>, method: 'POST' | 'PATCH' = 'POST'): Promise<any> => {
+const request = async (
+  path: string,
+  body: Record<string, unknown> | null,
+  method: 'POST' | 'PATCH' | 'DELETE' = 'POST'
+): Promise<any> => {
+  const doFetch = (token: string) =>
+    fetch(`${LICENSE_SERVER_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+
   let token = cachedToken ?? (await login());
-  let res = await fetch(`${LICENSE_SERVER_URL}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
+  let res = await doFetch(token);
   if (res.status === 401) {
     // Cached token expired — log in again once and retry.
     token = await login();
-    res = await fetch(`${LICENSE_SERVER_URL}${path}`, {
-      method,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-    });
+    res = await doFetch(token);
   }
-  if (!res.ok) throw createError('License server request failed.', 502);
-  return res.json();
+  // A DELETE against an already-gone license is treated as success — the
+  // end state (no such license) is what the caller wants either way.
+  if (!res.ok && !(method === 'DELETE' && res.status === 404)) {
+    throw createError('License server request failed.', 502);
+  }
+  return res.status === 204 || method === 'DELETE' ? null : res.json();
 };
 
 export const generateLicense = async (input: {
@@ -73,4 +83,11 @@ export const generateLicense = async (input: {
 // reactivateCustomer for the full explanation).
 export const setLicenseActive = async (licenseKey: string, isActive: boolean): Promise<void> => {
   await request(`/api/admin/licenses/${licenseKey}`, { is_active: isActive }, 'PATCH');
+};
+
+// Permanent delete — hard-removes the license row on license-server
+// entirely (its own existing DELETE /api/admin/licenses/:key route).
+// Irreversible; the key can never be looked up or reused after this.
+export const deleteLicense = async (licenseKey: string): Promise<void> => {
+  await request(`/api/admin/licenses/${licenseKey}`, null, 'DELETE');
 };

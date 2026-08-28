@@ -67,6 +67,11 @@ export const runMigrations = async (): Promise<void> => {
     []
   );
 
+  // Manual enable/disable switch (separate from subscription-expiry) an
+  // admin/agent can flip from the customer detail page — see
+  // staff.service.ts's setCustomerActive.
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`, []);
+
   console.log('[migrate] staff/platform_customers ready.');
 };
 

@@ -84,3 +84,21 @@ export const updateCustomerFeatures = async (req: StaffAuthRequest, res: Respons
     res.json({ success: true, data });
   } catch (err) { next(err); }
 };
+
+export const setCustomerActive = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await staffService.setCustomerActive(
+      parseInt(req.params.id, 10),
+      { staff_id: req.staff!.staff_id, role: req.staff!.role },
+      !!req.body.is_active
+    );
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+export const deleteCustomer = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await staffService.permanentlyDeleteCustomer(parseInt(req.params.id, 10));
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};

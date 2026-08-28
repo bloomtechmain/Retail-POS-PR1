@@ -38,9 +38,12 @@ export const loginUser = async (email: string, password: string) => {
     // Runs pre-tenant-context (search_path is still plain "public" here), so
     // this resolves against public.tenants exactly like the users/roles
     // lookup above did — no different treatment needed.
-    const tenantResult = await query('SELECT schema_name FROM tenants WHERE id = $1', [user.tenant_id]);
+    const tenantResult = await query('SELECT schema_name, is_active FROM tenants WHERE id = $1', [user.tenant_id]);
     if (tenantResult.rows.length === 0) {
       throw createError('This account is not linked to an active business. Contact support.', 401);
+    }
+    if (!tenantResult.rows[0].is_active) {
+      throw createError('This account has been deactivated. Contact your agent or admin.', 403);
     }
     schemaName = tenantResult.rows[0].schema_name;
 

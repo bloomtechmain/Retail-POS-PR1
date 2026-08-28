@@ -154,6 +154,41 @@ export const updateTenantFeatures = async (
   });
 };
 
+// Manual enable/disable switch an agent/admin can flip anytime from the
+// admin dashboard — separate from subscription expiry (which is
+// date-derived and owned by apps/admin-dashboard/backend's platform_customers
+// table). Blocks future logins via the loginUser check below; cannot force
+// out an already-issued JWT still in a browser somewhere (no server-side
+// session store in this codebase — same limitation the expiry check already
+// has).
+export const setTenantActive = async (tenantId: number, isActive: boolean): Promise<void> => {
+  const result = await query('UPDATE public.tenants SET is_active = $1 WHERE id = $2', [isActive, tenantId]);
+  if (result.rowCount === 0) throw createError('Tenant not found', 404);
+};
+
+// Irreversibly destroys a tenant: every product/sale/GRN/etc. they ever
+// had, gone. Called only for a platform_customers row apps/admin-dashboard/
+// backend has already confirmed is meant to be permanently deleted — this
+// function itself has no extra confirmation, callers must be certain.
+export const deleteTenant = async (tenantId: number): Promise<void> => {
+  const tenantResult = await query('SELECT schema_name FROM public.tenants WHERE id = $1', [tenantId]);
+  if (tenantResult.rows.length === 0) throw createError('Tenant not found', 404);
+  const schemaName = tenantResult.rows[0].schema_name;
+  if (!isSafeSchemaName(schemaName)) throw createError('Refusing to delete: invalid schema name', 500);
+
+  await transaction(async (client: PoolClient) => {
+    // public.users.tenant_id -> tenants(id) has no ON DELETE CASCADE, so the
+    // tenant row can't be deleted while these still reference it.
+    await client.query('DELETE FROM public.users WHERE tenant_id = $1', [tenantId]);
+    await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+    // Clean up the sandbox-mode sibling schema too, if this tenant ever
+    // switched into sandbox (see ensureSandboxSchema) — otherwise it's left
+    // behind forever with nothing left to reference it.
+    await client.query(`DROP SCHEMA IF EXISTS "${schemaName}_sandbox" CASCADE`);
+    await client.query('DELETE FROM public.tenants WHERE id = $1', [tenantId]);
+  });
+};
+
 // Called from POST /auth/sandbox the first time a given account switches
 // into sandbox mode. `liveSchemaName` is the schema the caller's real
 // (non-sandbox) token resolves to — a hosted tenant's "tenant_N", or

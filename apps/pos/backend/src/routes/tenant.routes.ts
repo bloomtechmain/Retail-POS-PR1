@@ -17,4 +17,11 @@ router.post('/provision', requireInternalApiKey, tenantController.provision);
 // after signup, from the admin-dashboard customer detail page.
 router.patch('/:id/features', requireInternalApiKey, tenantController.updateFeatures);
 
+// Server-to-server only — deactivate/reactivate toggle.
+router.patch('/:id/active', requireInternalApiKey, tenantController.setActive);
+
+// Server-to-server only — permanent delete (admin-only, enforced on the
+// admin-dashboard side before this is ever called).
+router.delete('/:id', requireInternalApiKey, tenantController.remove);
+
 export default router;

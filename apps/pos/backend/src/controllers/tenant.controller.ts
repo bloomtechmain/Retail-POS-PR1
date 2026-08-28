@@ -44,3 +44,21 @@ export const updateFeatures = async (req: Request, res: Response, next: NextFunc
     res.json({ success: true });
   } catch (err) { next(err); }
 };
+
+// Internal, server-to-server only — deactivate/reactivate toggle from the
+// admin dashboard's customer detail page.
+export const setActive = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await tenantService.setTenantActive(parseInt(req.params.id, 10), !!req.body.isActive);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};
+
+// Internal, server-to-server only — permanent delete, admin-only on the
+// admin-dashboard side. Drops the tenant's entire schema.
+export const remove = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await tenantService.deleteTenant(parseInt(req.params.id, 10));
+    res.json({ success: true });
+  } catch (err) { next(err); }
+};

@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { fetchCustomer, reactivateCustomer, updateCustomerFeatures, fetchPlans, Plan, PlatformCustomer } from '../services/api';
+import {
+  fetchCustomer, reactivateCustomer, updateCustomerFeatures, fetchPlans,
+  setCustomerActive, deleteCustomerPermanently, Plan, PlatformCustomer,
+} from '../services/api';
 import { PageLoader } from '../components/PageLoader';
+import { useAuth } from '../AuthContext';
 
 const PLAN_LABELS: Record<string, string> = {
   basic: 'Basic',
@@ -36,11 +40,17 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { staff } = useAuth();
+  const isAdmin = staff?.role === 'admin';
   const [customer, setCustomer] = useState<PlatformCustomer | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reactivating, setReactivating] = useState(false);
+  const [togglingActive, setTogglingActive] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const [editingFeatures, setEditingFeatures] = useState(false);
   const [featureSelection, setFeatureSelection] = useState<string[]>([]);
@@ -104,6 +114,38 @@ export default function CustomerDetail() {
     }
   };
 
+  const handleToggleActive = async () => {
+    if (!id || !customer) return;
+    const goingActive = !customer.is_active;
+    const message = goingActive
+      ? 'Reactivate this customer? They will be able to log in again.'
+      : "Deactivate this customer? They won't be able to log in until reactivated. Their data is not touched.";
+    if (!confirm(message)) return;
+    setTogglingActive(true);
+    try {
+      const updated = await setCustomerActive(Number(id), goingActive);
+      setCustomer(updated);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to change status.');
+    } finally {
+      setTogglingActive(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!id || !customer) return;
+    setDeleteError('');
+    setDeleting(true);
+    try {
+      await deleteCustomerPermanently(Number(id));
+      navigate('/customers');
+    } catch (err: any) {
+      setDeleteError(err?.response?.data?.message || 'Failed to delete customer.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <PageLoader />;
   if (error || !customer) {
     return (
@@ -126,9 +168,17 @@ export default function CustomerDetail() {
           <h1 className="text-2xl font-bold text-surface-900">{customer.customer_name}</h1>
           <p className="text-surface-500 text-sm mt-1">{customer.customer_email}</p>
         </div>
-        <span className={customer.delivery_type === 'online' ? 'badge-blue' : 'badge-gray'}>
-          {customer.delivery_type}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={customer.is_active ? 'badge-green' : 'badge-red'}>
+            {customer.is_active ? 'Active' : 'Deactivated'}
+          </span>
+          <span className={customer.delivery_type === 'online' ? 'badge-blue' : 'badge-gray'}>
+            {customer.delivery_type}
+          </span>
+          <button className="btn-secondary btn-sm" disabled={togglingActive} onClick={handleToggleActive}>
+            {togglingActive ? 'Saving...' : customer.is_active ? 'Deactivate' : 'Reactivate'}
+          </button>
+        </div>
       </div>
 
       <div className={`card p-5 mb-6 ${customer.is_expired ? 'ring-2 ring-red-300' : ''}`}>
@@ -245,6 +295,34 @@ export default function CustomerDetail() {
           </div>
         )}
       </div>
+
+      {isAdmin && (
+        <div className="card p-6 mt-6 border-2 border-red-200 bg-red-50/30">
+          <div className="text-sm font-semibold text-red-700 mb-1">Danger Zone</div>
+          <p className="text-xs text-surface-600 mb-3">
+            Permanently deletes this customer.
+            {customer.delivery_type === 'online'
+              ? ' Their entire business — products, sales, everything — is destroyed immediately.'
+              : ' Their license key is destroyed and can never be reused.'}
+            {' '}This cannot be undone. Consider deactivating instead unless you're certain.
+          </p>
+          <label className="label">Type the customer's name ({customer.customer_name}) to confirm</label>
+          <input
+            className="input mb-2"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder={customer.customer_name}
+          />
+          {deleteError && <p className="text-sm text-red-600 mb-2">{deleteError}</p>}
+          <button
+            className="btn-primary bg-red-600 hover:bg-red-700 border-red-600"
+            disabled={deleting || deleteConfirmText !== customer.customer_name}
+            onClick={handleDelete}
+          >
+            {deleting ? 'Deleting...' : 'Permanently Delete Customer'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

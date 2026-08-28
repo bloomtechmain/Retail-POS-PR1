@@ -58,6 +58,7 @@ export interface PlatformCustomer {
   last_payment_at: string | null;
   days_remaining: number;
   is_expired: boolean;
+  is_active: boolean;
 }
 
 export interface Agent {
@@ -114,6 +115,15 @@ export const reactivateCustomer = async (id: number): Promise<PlatformCustomer> 
 export const updateCustomerFeatures = async (id: number, customFeatures: string[] | null): Promise<PlatformCustomer> => {
   const res = await api.patch(`/staff/customers/${id}/features`, { customFeatures });
   return res.data.data;
+};
+
+export const setCustomerActive = async (id: number, isActive: boolean): Promise<PlatformCustomer> => {
+  const res = await api.patch(`/staff/customers/${id}/status`, { is_active: isActive });
+  return res.data.data;
+};
+
+export const deleteCustomerPermanently = async (id: number): Promise<void> => {
+  await api.delete(`/staff/customers/${id}`);
 };
 
 export const listAgents = async (): Promise<Agent[]> => {

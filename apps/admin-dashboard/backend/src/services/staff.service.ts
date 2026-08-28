@@ -3,8 +3,8 @@ import { query } from '../config/database';
 import { createError } from '../middleware/error';
 import { signStaffToken } from '../utils/jwt';
 import { StaffAuthPayload } from '../types';
-import { provisionOnlineTenant, updateTenantFeatures } from './posBackendClient';
-import { generateLicense, setLicenseActive } from './licenseServerClient';
+import { provisionOnlineTenant, updateTenantFeatures, setTenantActive, deleteTenant } from './posBackendClient';
+import { generateLicense, setLicenseActive, deleteLicense } from './licenseServerClient';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -258,6 +258,61 @@ export const updateCustomerFeatures = async (
     [normalized ? JSON.stringify(normalized) : null, customerId]
   );
   return withSubscriptionStatus(result.rows[0]);
+};
+
+// Manual enable/disable switch, separate from subscription-expiry — an
+// agent can flip it only for customers they created, admin for any.
+// Reversible: for online this blocks/restores login via pos-backend's
+// tenants.is_active check (loginUser); for offline it revokes/restores the
+// license the same way reactivateCustomer already does, just also able to
+// go false now. No real data (tenant schema, license history) is touched.
+export const setCustomerActive = async (
+  customerId: number,
+  staff: { staff_id: number; role: 'admin' | 'agent' },
+  isActive: boolean
+) => {
+  const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
+  if (existing.rows.length === 0) throw createError('Customer not found', 404);
+  const row = existing.rows[0];
+  if (staff.role !== 'admin' && row.agent_id !== staff.staff_id) {
+    throw createError('You can only change status for customers you created', 403);
+  }
+
+  if (row.delivery_type === 'online' && row.tenant_id) {
+    await setTenantActive(row.tenant_id, isActive);
+  } else if (row.delivery_type === 'offline' && row.license_key) {
+    await setLicenseActive(row.license_key, isActive);
+  }
+
+  const result = await query(
+    `UPDATE platform_customers SET is_active = $1 WHERE id = $2 RETURNING *`,
+    [isActive, customerId]
+  );
+  return withSubscriptionStatus(result.rows[0]);
+};
+
+// Irreversible. Admin-only (enforced at the route). Destroys the customer's
+// actual account — online: drops their entire tenant schema; offline: hard-
+// deletes the license. The ledger row is deleted FIRST, not after — pos-
+// backend's public.tenants row can't be dropped while platform_customers.
+// tenant_id still references it (a real FK, discovered live: deleting the
+// ledger row after the tenant caused "violates foreign key constraint
+// platform_customers_tenant_id_fkey"). If the external delete then fails,
+// the ledger entry is already gone — surfaced as an error either way so an
+// admin knows to check pos-backend/license-server directly, rather than
+// silently losing track of it.
+export const permanentlyDeleteCustomer = async (customerId: number) => {
+  const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
+  if (existing.rows.length === 0) throw createError('Customer not found', 404);
+  const row = existing.rows[0];
+
+  await query('DELETE FROM platform_customers WHERE id = $1', [customerId]);
+
+  if (row.delivery_type === 'online' && row.tenant_id) {
+    await deleteTenant(row.tenant_id);
+  } else if (row.delivery_type === 'offline' && row.license_key) {
+    await deleteLicense(row.license_key);
+  }
 };
 
 // Every number below comes from a live query against the same shared
