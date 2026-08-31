@@ -35,7 +35,7 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
       // the route handler itself — runs inside this schema's context, so
       // every query()/transaction() call for the rest of the request
       // automatically resolves against it.
-      runWithTenant(schema, () => next());
+      runWithTenant(schema, () => next(), decoded.tenant_id);
     } else {
       // Electron, live mode: no tenant context at all — every query already
       // resolves against the local database's one flat "public" schema.
@@ -64,7 +64,7 @@ export const optionalAuthenticate = (req: AuthRequest, res: Response, next: Next
     req.user = decoded;
     const schema = effectiveSchema(decoded);
     if (schema) {
-      runWithTenant(schema, () => next());
+      runWithTenant(schema, () => next(), decoded.tenant_id);
     } else {
       next();
     }
