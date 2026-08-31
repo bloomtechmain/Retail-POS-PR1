@@ -4,7 +4,8 @@ import { AuthRequest } from '../middleware/auth';
 
 export const create = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const sale = await salesService.createSale(req.body, req.user!.id);
+    const canOverridePrice = req.user!.permissions?.price_override === true;
+    const sale = await salesService.createSale(req.body, req.user!.id, canOverridePrice);
     res.status(201).json({ success: true, data: sale });
   } catch (err) { next(err); }
 };

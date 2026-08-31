@@ -5,8 +5,21 @@ import { generateSaleNumber, generateReturnNumber, round2, round3, calculateWeig
 import { Sale, CreateSalePayload, SaleReturn, ReturnSaleItemsPayload } from '../types';
 import { planIncludes, DEFAULT_PLAN_KEY } from '../data/plans';
 
-export const createSale = async (data: CreateSalePayload, cashierId: number): Promise<Sale> => {
+export const createSale = async (
+  data: CreateSalePayload,
+  cashierId: number,
+  canOverridePrice: boolean
+): Promise<Sale> => {
   return transaction(async (client: PoolClient) => {
+    // A zero/negative quantity inverts every downstream calculation — stock
+    // goes UP instead of down, and totals go negative — so it must never
+    // reach the pricing/stock logic below at all, regardless of role.
+    for (const item of data.cart_items) {
+      if (!(item.quantity > 0)) {
+        throw createError(`Invalid quantity for "${item.product_name}" — must be greater than zero`, 400);
+      }
+    }
+
     // Get active shift for cashier
     const shiftResult = await client.query(
       `SELECT id FROM shifts WHERE opened_by = $1 AND status = 'open' ORDER BY open_time DESC LIMIT 1`,
@@ -52,7 +65,7 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
 
     for (const item of data.cart_items) {
       const productResult = await client.query(
-        'SELECT id, avg_cost, current_stock, allow_negative_stock, costing_method FROM products WHERE id = $1 FOR UPDATE',
+        'SELECT id, selling_price, avg_cost, current_stock, allow_negative_stock, costing_method FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
       if (productResult.rows.length === 0) {
@@ -60,6 +73,21 @@ export const createSale = async (data: CreateSalePayload, cashierId: number): Pr
       }
       const product = productResult.rows[0];
       const avgCost = parseFloat(product.avg_cost) || 0;
+
+      // A cashier without price_override must sell at the product's real
+      // price — item-level/bill-level discounts (below) are the sanctioned
+      // way prices move, not a client-supplied unit_price. Without this
+      // check, any authenticated user could set unit_price to whatever they
+      // want, permission shown in their own token or not.
+      if (!canOverridePrice) {
+        const realPrice = round2(parseFloat(product.selling_price));
+        if (round2(item.unit_price) !== realPrice) {
+          throw createError(
+            `You don't have permission to change the price of "${item.product_name}"`,
+            403
+          );
+        }
+      }
 
       const costPrice = product.costing_method === 'fifo'
         ? await consumeFifoBatches(client, item.product_id, item.quantity, avgCost)
