@@ -37,10 +37,10 @@ export const provision = async (req: Request, res: Response, next: NextFunction)
 };
 
 // Internal, server-to-server only — apps/admin-dashboard/backend calls this
-// whenever an agent/admin edits a customer's features after signup.
-export const updateFeatures = async (req: Request, res: Response, next: NextFunction) => {
+// whenever an agent/admin upgrades/changes a customer's package after signup.
+export const updatePlan = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await tenantService.updateTenantFeatures(parseInt(req.params.id, 10), req.body.customFeatures || null);
+    await tenantService.updateTenantPlan(parseInt(req.params.id, 10), req.body.planKey);
     res.json({ success: true });
   } catch (err) { next(err); }
 };

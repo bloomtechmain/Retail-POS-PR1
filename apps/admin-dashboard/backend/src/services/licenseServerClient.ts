@@ -70,6 +70,10 @@ export const generateLicense = async (input: {
   // week grace) and license-server's licenseUtils.ts for how Electron
   // enforces it locally, offline, on every launch.
   expiresAt?: string;
+  // Which package this key activates the install with — embedded in the
+  // signed token the same way expiresAt is, and applied locally by
+  // apps/pos/electron/main.js's runMigrations() on every launch.
+  planKey?: string;
 }): Promise<{ licenseKey: string }> => {
   const data = await request('/api/admin/licenses/generate', {
     customer_name: input.customer_name,
@@ -79,6 +83,7 @@ export const generateLicense = async (input: {
     preset_admin_email: input.preset_admin_email,
     preset_admin_password: input.preset_admin_password,
     expires_at: input.expiresAt,
+    plan_key: input.planKey,
   });
   const keys: string[] = data.keys || [];
   if (keys.length === 0) throw createError('License server did not return a license key.', 502);

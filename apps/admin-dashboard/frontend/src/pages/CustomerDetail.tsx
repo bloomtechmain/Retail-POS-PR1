@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  fetchCustomer, reactivateCustomer, updateCustomerFeatures, fetchPlans,
+  fetchCustomer, reactivateCustomer, upgradeCustomerPackage, fetchPlans,
   setCustomerActive, deleteCustomerPermanently, Plan, PlatformCustomer,
 } from '../services/api';
 import { PageLoader } from '../components/PageLoader';
@@ -13,18 +13,6 @@ const PLAN_LABELS: Record<string, string> = {
   professional: 'Professional',
   enterprise: 'Enterprise',
 };
-
-const FEATURE_LABELS: Record<string, string> = {
-  reports: 'Reports & analytics',
-  users: 'Multiple staff logins',
-  promotions: 'Promotions & discounts',
-  customers: 'Credit customers',
-  fifo_costing: 'Batch / FIFO costing',
-  multi_language: 'Multi-language',
-  multi_currency: 'Multi-currency',
-  vat_invoice: 'VAT tax invoices',
-};
-const ALL_FEATURES = Object.keys(FEATURE_LABELS);
 
 const POS_DOWNLOAD_URL = 'https://app.bloomswiftpos.com/downloads/BloomPOS-Setup.exe';
 
@@ -52,9 +40,9 @@ export default function CustomerDetail() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  const [editingFeatures, setEditingFeatures] = useState(false);
-  const [featureSelection, setFeatureSelection] = useState<string[]>([]);
-  const [savingFeatures, setSavingFeatures] = useState(false);
+  const [editingPackage, setEditingPackage] = useState(false);
+  const [selectedPlanKey, setSelectedPlanKey] = useState('');
+  const [savingPackage, setSavingPackage] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const copy = (field: string, value: string) => {
@@ -75,28 +63,27 @@ export default function CustomerDetail() {
   useEffect(load, [id]);
   useEffect(() => { fetchPlans().then(setPlans); }, []);
 
-  const startEditingFeatures = () => {
+  const startEditingPackage = () => {
     if (!customer) return;
-    const planDefaults = plans.find((p) => p.key === customer.plan_key)?.features || [];
-    setFeatureSelection(customer.custom_features && customer.custom_features.length > 0 ? customer.custom_features : planDefaults);
-    setEditingFeatures(true);
+    setSelectedPlanKey(customer.plan_key);
+    setEditingPackage(true);
   };
 
-  const toggleFeature = (f: string) => {
-    setFeatureSelection((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
-  };
-
-  const saveFeatures = async () => {
-    if (!id) return;
-    setSavingFeatures(true);
+  const savePackage = async () => {
+    if (!id || !customer || !selectedPlanKey) return;
+    const message = customer.delivery_type === 'offline'
+      ? "Upgrading this customer's package generates a NEW license key — the old one stops working, so you'll need to give this new key to the customer to re-activate their app."
+      : 'Changes apply immediately — the customer sees them on their next action, no restart needed.';
+    if (selectedPlanKey !== customer.plan_key && !confirm(message)) return;
+    setSavingPackage(true);
     try {
-      const updated = await updateCustomerFeatures(Number(id), featureSelection);
+      const updated = await upgradeCustomerPackage(Number(id), selectedPlanKey);
       setCustomer(updated);
-      setEditingFeatures(false);
+      setEditingPackage(false);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to update features.');
+      setError(err?.response?.data?.message || 'Failed to update package.');
     } finally {
-      setSavingFeatures(false);
+      setSavingPackage(false);
     }
   };
 
@@ -216,7 +203,6 @@ export default function CustomerDetail() {
           <Field label="Agent" value={customer.agent_name} />
           <Field label="Started" value={startedDate.toLocaleDateString()} />
           <Field label="Last Payment" value={customer.last_payment_at ? new Date(customer.last_payment_at).toLocaleDateString() : 'Never renewed'} />
-          <Field label="Package" value={PLAN_LABELS[customer.plan_key] || customer.plan_key} />
           {customer.delivery_type === 'online' ? (
             <Field label="Tenant ID" value={customer.tenant_id} />
           ) : (
@@ -254,44 +240,39 @@ export default function CustomerDetail() {
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <div className="text-xs font-medium text-surface-500 uppercase tracking-wide">Features</div>
-            {!editingFeatures && (
-              <button className="btn-secondary btn-sm" onClick={startEditingFeatures}>Edit Features</button>
+            <div className="text-xs font-medium text-surface-500 uppercase tracking-wide">Package</div>
+            {!editingPackage && (
+              <button className="btn-secondary btn-sm" onClick={startEditingPackage}>Upgrade Package</button>
             )}
           </div>
 
-          {editingFeatures ? (
+          {editingPackage ? (
             <div>
               <p className="text-xs text-surface-500 mb-2">
                 {customer.delivery_type === 'online'
                   ? 'Changes apply immediately — the customer sees them on their next action, no restart needed.'
-                  : "This updates the customer's record. It can't reach an already-running desktop install, only future activations."}
+                  : "Switching package generates a NEW license key — the old one stops working, so you'll need to give this new key to the customer to re-activate their app."}
               </p>
-              <div className="grid grid-cols-2 gap-2 bg-surface-50 border border-surface-200 rounded-lg p-3">
-                {ALL_FEATURES.map((f) => (
-                  <label key={f} className="flex items-center gap-2 text-sm text-surface-700">
-                    <input type="checkbox" checked={featureSelection.includes(f)} onChange={() => toggleFeature(f)} />
-                    {FEATURE_LABELS[f]}
-                  </label>
+              <select
+                className="input"
+                value={selectedPlanKey}
+                onChange={(e) => setSelectedPlanKey(e.target.value)}
+              >
+                {plans.map((p) => (
+                  <option key={p.key} value={p.key}>{p.name}</option>
                 ))}
-              </div>
+              </select>
               <div className="flex gap-2 mt-3">
-                <button className="btn-primary btn-sm" disabled={savingFeatures} onClick={saveFeatures}>
-                  {savingFeatures ? 'Saving...' : 'Save Features'}
+                <button className="btn-primary btn-sm" disabled={savingPackage} onClick={savePackage}>
+                  {savingPackage ? 'Saving...' : 'Save Package'}
                 </button>
-                <button className="btn-secondary btn-sm" disabled={savingFeatures} onClick={() => setEditingFeatures(false)}>
+                <button className="btn-secondary btn-sm" disabled={savingPackage} onClick={() => setEditingPackage(false)}>
                   Cancel
                 </button>
               </div>
             </div>
-          ) : customer.custom_features && customer.custom_features.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {customer.custom_features.map((f) => (
-                <span key={f} className="badge-blue">{FEATURE_LABELS[f] || f}</span>
-              ))}
-            </div>
           ) : (
-            <p className="text-sm text-surface-400">Using {PLAN_LABELS[customer.plan_key] || customer.plan_key} package defaults.</p>
+            <p className="text-sm text-surface-900">{PLAN_LABELS[customer.plan_key] || customer.plan_key}</p>
           )}
         </div>
 

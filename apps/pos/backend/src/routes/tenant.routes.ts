@@ -13,9 +13,9 @@ router.post('/', tenantController.create);
 // agent provisions an online customer with a customized feature set.
 router.post('/provision', requireInternalApiKey, tenantController.provision);
 
-// Server-to-server only — agent/admin edits a customer's features anytime
-// after signup, from the admin-dashboard customer detail page.
-router.patch('/:id/features', requireInternalApiKey, tenantController.updateFeatures);
+// Server-to-server only — agent/admin upgrades/changes a customer's package
+// anytime after signup, from the admin-dashboard customer detail page.
+router.patch('/:id/plan', requireInternalApiKey, tenantController.updatePlan);
 
 // Server-to-server only — deactivate/reactivate toggle.
 router.patch('/:id/active', requireInternalApiKey, tenantController.setActive);

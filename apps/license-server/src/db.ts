@@ -75,6 +75,13 @@ if (!hasColumn('preset_admin_password')) {
 if (!hasColumn('expires_at')) {
   db.exec(`ALTER TABLE licenses ADD COLUMN expires_at TEXT`);
 }
+// Which package this key should activate with — set by admin-dashboard at
+// generation/upgrade time, embedded into the signed activation token's
+// `plan_key` claim so an offline install knows its feature set with no live
+// call back to this server after first activation (same reasoning as `exp`).
+if (!hasColumn('plan_key')) {
+  db.exec(`ALTER TABLE licenses ADD COLUMN plan_key TEXT`);
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS activation_log (

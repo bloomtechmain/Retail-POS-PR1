@@ -131,25 +131,30 @@ export const provisionTenant = async (input: ProvisionTenantInput): Promise<Prov
   });
 };
 
-// Lets an agent/admin change a customer's feature set anytime after
+// Lets an agent/admin move a customer to a different package anytime after
 // signup, not just at creation — the very next request that tenant makes
-// picks it up immediately, since requireFeature reads settings.custom_features
-// live on every request (no cache, no restart needed). Called internally by
-// apps/admin-dashboard/backend (see requireInternalApiKey on the route);
-// this runs with no tenant context of its own (server-to-server call, no
-// tenant JWT), so it must look up the schema and open one explicitly.
-export const updateTenantFeatures = async (
+// picks it up immediately, since requireFeature reads settings.plan_key
+// live on every request (no cache, no restart needed). Clears any leftover
+// custom_features override in the same statement — once a customer is on a
+// package, their features are exactly what that package defines, never a
+// per-customer toggle list. Called internally by apps/admin-dashboard/backend
+// (see requireInternalApiKey on the route); this runs with no tenant context
+// of its own (server-to-server call, no tenant JWT), so it must look up the
+// schema and open one explicitly.
+export const updateTenantPlan = async (
   tenantId: number,
-  customFeatures: FeatureKey[] | null
+  planKey: string
 ): Promise<void> => {
+  if (!isValidPlanKey(planKey)) throw createError('Invalid plan', 400);
+
   const tenantResult = await query('SELECT schema_name FROM public.tenants WHERE id = $1', [tenantId]);
   if (tenantResult.rows.length === 0) throw createError('Tenant not found', 404);
   const schemaName = tenantResult.rows[0].schema_name;
 
   await runWithTenant(schemaName, async () => {
     await query(
-      'UPDATE settings SET custom_features = $1, updated_at = NOW() WHERE id = 1',
-      [customFeatures && customFeatures.length > 0 ? JSON.stringify(customFeatures) : null]
+      'UPDATE settings SET plan_key = $1, custom_features = NULL, updated_at = NOW() WHERE id = 1',
+      [planKey]
     );
   });
 };

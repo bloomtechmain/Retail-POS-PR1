@@ -42,21 +42,22 @@ export const provisionOnlineTenant = async (
   return data.data;
 };
 
-// Pushes an edited feature set to a live tenant — takes effect immediately
-// on that tenant's very next request, no restart needed (pos-backend's
-// requireFeature reads settings.custom_features fresh every time).
-export const updateTenantFeatures = async (tenantId: number, customFeatures: string[] | null): Promise<void> => {
+// Moves a live tenant to a different package — takes effect immediately on
+// that tenant's very next request, no restart needed (pos-backend's
+// requireFeature reads settings.plan_key fresh every time). Also clears any
+// leftover custom_features override on the pos-backend side.
+export const updateTenantPlan = async (tenantId: number, planKey: string): Promise<void> => {
   if (!INTERNAL_API_KEY) {
     throw createError('Online provisioning is not configured on this server (INTERNAL_API_KEY missing).', 500);
   }
-  const res = await fetch(`${POS_BACKEND_URL}/api/tenants/${tenantId}/features`, {
+  const res = await fetch(`${POS_BACKEND_URL}/api/tenants/${tenantId}/plan`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'X-Internal-Api-Key': INTERNAL_API_KEY },
-    body: JSON.stringify({ customFeatures }),
+    body: JSON.stringify({ planKey }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { message?: string };
-    throw createError(body.message || 'Could not update features on the POS backend.', res.status);
+    throw createError(body.message || 'Could not update the package on the POS backend.', res.status);
   }
 };
 

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import db from '../db';
 import { isValidKeyFormat, createActivationToken } from '../licenseUtils';
+import { isRateLimited, recordAttempt } from '../rateLimiter';
 
 const router = Router();
 
@@ -15,6 +16,13 @@ interface VerifyBody {
 router.post('/', (req: Request, res: Response) => {
   const { license_key, machine_fingerprint, machine_name } = req.body as VerifyBody;
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
+
+  const retryAfter = isRateLimited(ip);
+  if (retryAfter !== null) {
+    res.status(429).json({ success: false, error: `Too many attempts from this address. Try again in ${retryAfter} seconds.` });
+    return;
+  }
+  recordAttempt(ip);
 
   const logAttempt = (licKey: string, fp: string, success: boolean, reason: string) => {
     db.prepare(
@@ -53,6 +61,7 @@ router.post('/', (req: Request, res: Response) => {
         preset_admin_email: string | null;
         preset_admin_password: string | null;
         expires_at: string | null;
+        plan_key: string | null;
       }
     | undefined;
 
@@ -95,7 +104,7 @@ router.post('/', (req: Request, res: Response) => {
 
   // First-time activation — sign and store
   try {
-    const token = createActivationToken(key, machine_fingerprint, license.expires_at);
+    const token = createActivationToken(key, machine_fingerprint, license.expires_at, license.plan_key);
     // Servable exactly once: captured before the same statement clears them,
     // so a re-activation later (handled above, same-machine only) never
     // re-serves them — by then the customer is expected to have already

@@ -3,7 +3,7 @@ import { query } from '../config/database';
 import { createError } from '../middleware/error';
 import { signStaffToken } from '../utils/jwt';
 import { StaffAuthPayload } from '../types';
-import { provisionOnlineTenant, updateTenantFeatures, setTenantActive, deleteTenant } from './posBackendClient';
+import { provisionOnlineTenant, updateTenantPlan, setTenantActive, deleteTenant } from './posBackendClient';
 import { generateLicense, setLicenseActive, deleteLicense } from './licenseServerClient';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -149,6 +149,7 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       // 1 week grace beyond the subscription month — enforced locally by
       // Electron on every launch (see license.js's checkLicense()).
       expiresAt: new Date(new Date(subscriptionEndDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      planKey,
     });
     licenseKey = result.licenseKey;
   }
@@ -263,19 +264,25 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
   return withSubscriptionStatus(result.rows[0]);
 };
 
-// Lets an agent/admin change a customer's package features anytime after
-// signup, not just at creation. For online customers this pushes live to
-// their tenant (see posBackendClient.updateTenantFeatures — takes effect on
-// their very next request, no restart needed). For offline customers there
-// is no live install to push to — Electron only checks its license once at
-// first activation (same limitation already noted for reactivateCustomer /
-// license revoke-restore) — this just updates the ledger record for now,
-// which is what an agent would reference when the customer's desktop app
-// eventually needs reinstalling/reactivating anyway.
-export const updateCustomerFeatures = async (
+// Lets an agent/admin move a customer to a different package anytime after
+// signup, not just at creation — replaces the old per-feature toggle editor
+// entirely; a customer's features are now always exactly what their package
+// defines, never a hand-picked list.
+//
+// Online: pushes live to the tenant (see posBackendClient.updateTenantPlan)
+// — takes effect on their very next request, no restart needed.
+//
+// Offline: there is no live install to push to — Electron only ever checks
+// its license file locally and never re-contacts this server after
+// activation, so the only way to actually change what an already-installed
+// app can do is to force re-activation with a brand-new key (identical
+// reasoning to reactivateCustomer's renewal branch). The new key carries the
+// new plan_key claim and keeps the customer's existing expiry window
+// unchanged — upgrading a package is independent of the billing cycle.
+export const upgradeCustomerPackage = async (
   customerId: number,
   staff: { staff_id: number; role: 'admin' | 'agent' },
-  customFeatures: string[] | null
+  planKey: string
 ) => {
   const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
   if (existing.rows.length === 0) throw createError('Customer not found', 404);
@@ -284,15 +291,26 @@ export const updateCustomerFeatures = async (
     throw createError('You can only edit customers you created', 403);
   }
 
-  const normalized = customFeatures && customFeatures.length > 0 ? customFeatures : null;
-
+  let newLicenseKey: string | null = null;
   if (row.delivery_type === 'online' && row.tenant_id) {
-    await updateTenantFeatures(row.tenant_id, normalized);
+    await updateTenantPlan(row.tenant_id, planKey);
+  } else if (row.delivery_type === 'offline' && row.license_key) {
+    const result = await generateLicense({
+      customer_name: row.customer_name,
+      customer_email: row.customer_email,
+      expiresAt: new Date(new Date(row.subscription_end_date).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      planKey,
+    });
+    newLicenseKey = result.licenseKey;
+    await setLicenseActive(row.license_key, false);
   }
 
   const result = await query(
-    `UPDATE platform_customers SET custom_features = $1 WHERE id = $2 RETURNING *`,
-    [normalized ? JSON.stringify(normalized) : null, customerId]
+    `UPDATE platform_customers
+     SET plan_key = $2, custom_features = NULL${newLicenseKey ? ', license_key = $3' : ''}
+     WHERE id = $1
+     RETURNING *`,
+    newLicenseKey ? [customerId, planKey, newLicenseKey] : [customerId, planKey]
   );
   return withSubscriptionStatus(result.rows[0]);
 };

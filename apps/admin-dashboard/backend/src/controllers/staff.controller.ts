@@ -1,13 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import * as staffService from '../services/staff.service';
 import { StaffAuthRequest } from '../middleware/auth';
+import { isRateLimited, recordFailedAttempt, clearAttempts } from '../utils/rateLimiter';
 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
+  const { email, password } = req.body;
+  const rateLimitKey = `${req.ip}:${(email || '').toLowerCase()}`;
   try {
-    const { email, password } = req.body;
+    const retryAfter = isRateLimited(rateLimitKey);
+    if (retryAfter !== null) {
+      res.status(429).json({
+        success: false,
+        message: `Too many failed login attempts. Try again in ${retryAfter} seconds.`,
+      });
+      return;
+    }
     const result = await staffService.loginStaff(email, password);
+    clearAttempts(rateLimitKey);
     res.json({ success: true, ...result });
-  } catch (err) { next(err); }
+  } catch (err) {
+    recordFailedAttempt(rateLimitKey);
+    next(err);
+  }
 };
 
 export const createAgent = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
@@ -74,12 +88,12 @@ export const reactivateCustomer = async (req: StaffAuthRequest, res: Response, n
   } catch (err) { next(err); }
 };
 
-export const updateCustomerFeatures = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
+export const upgradeCustomerPackage = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
   try {
-    const data = await staffService.updateCustomerFeatures(
+    const data = await staffService.upgradeCustomerPackage(
       parseInt(req.params.id, 10),
       { staff_id: req.staff!.staff_id, role: req.staff!.role },
-      req.body.customFeatures || null
+      req.body.planKey
     );
     res.json({ success: true, data });
   } catch (err) { next(err); }

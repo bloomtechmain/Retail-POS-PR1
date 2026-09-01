@@ -148,10 +148,11 @@
   </div>
 
   <script>
-    const { ipcRenderer } = require('electron');
-
-    if (new URLSearchParams(location.search).get('reason') === 'expired') {
+    const activationReason = new URLSearchParams(location.search).get('reason');
+    if (activationReason === 'expired') {
       document.getElementById('subtitle').textContent = 'Your subscription needs renewing — enter your new license key';
+    } else if (activationReason === 'revoked') {
+      document.getElementById('subtitle').textContent = 'Your package has been updated — enter your new license key';
     }
 
     function formatKey(input) {
@@ -191,12 +192,12 @@
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>Verifying…';
 
-      const result = await ipcRenderer.invoke('activate-license', { key, serverUrl });
+      const result = await window.electronAPI.activateLicense({ key, serverUrl });
 
       if (result.success) {
         okEl.classList.add('visible');
         btn.style.display = 'none';
-        setTimeout(() => ipcRenderer.send('activation-complete', {
+        setTimeout(() => window.electronAPI.notifyActivationComplete({
           presetAdminEmail: result.presetAdminEmail,
           presetAdminPassword: result.presetAdminPassword,
         }), 1500);

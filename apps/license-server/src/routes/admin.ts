@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import db from '../db';
 import { generateLicenseKey, isValidKeyFormat } from '../licenseUtils';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { isRateLimited, recordAttempt, clearAttempts } from '../rateLimiter';
 
 const router = Router();
 
@@ -15,14 +16,23 @@ router.post('/login', (req: Request, res: Response) => {
     return;
   }
 
+  const rateLimitKey = `${req.ip}:${username.toLowerCase()}`;
+  const retryAfter = isRateLimited(rateLimitKey);
+  if (retryAfter !== null) {
+    res.status(429).json({ error: `Too many login attempts. Try again in ${retryAfter} seconds.` });
+    return;
+  }
+
   const user = db.prepare('SELECT * FROM admin_users WHERE username = ?').get(username) as
     | { id: number; username: string; password_hash: string }
     | undefined;
 
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    recordAttempt(rateLimitKey);
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }
+  clearAttempts(rateLimitKey);
 
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -44,6 +54,7 @@ router.post('/licenses/generate', requireAuth, (req: AuthRequest, res: Response)
     preset_admin_email,
     preset_admin_password,
     expires_at,
+    plan_key,
   } = req.body as {
     customer_name?: string;
     customer_email?: string;
@@ -59,16 +70,20 @@ router.post('/licenses/generate', requireAuth, (req: AuthRequest, res: Response)
     // platform_customers.subscription_end_date + 1 week grace. Only
     // meaningful for a single key, same restriction as preset creds.
     expires_at?: string;
+    // Which package this key should activate the install with. Only
+    // meaningful for a single key, same restriction as preset creds.
+    plan_key?: string;
   };
 
   const qty = Math.min(Math.max(1, Number(count) || 1), 100);
   const applyPreset = qty === 1 && preset_admin_email && preset_admin_password;
   const applyExpiry = qty === 1 && expires_at;
+  const applyPlan = qty === 1 && plan_key;
   const keys: string[] = [];
 
   const insert = db.prepare(
-    `INSERT INTO licenses (license_key, customer_name, customer_email, notes, preset_admin_email, preset_admin_password, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO licenses (license_key, customer_name, customer_email, notes, preset_admin_email, preset_admin_password, expires_at, plan_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   db.exec('BEGIN');
@@ -88,7 +103,8 @@ router.post('/licenses/generate', requireAuth, (req: AuthRequest, res: Response)
         notes || null,
         applyPreset ? preset_admin_email : null,
         applyPreset ? preset_admin_password : null,
-        applyExpiry ? expires_at : null
+        applyExpiry ? expires_at : null,
+        applyPlan ? plan_key : null
       );
       keys.push(key);
     }

@@ -12,6 +12,11 @@ const { checkLicense, activateLicense } = require('./license');
 const BACKEND_PORT = 5000;
 const APP_VERSION = app.getVersion();
 
+// Same default shown on the activation screen — used for the background
+// revocation check below, which never prompts the user for a server URL.
+const DEFAULT_LICENSE_SERVER_URL = 'https://dashboard.bloomswiftpos.com/license-api';
+const REVOCATION_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+
 // ─── Single Instance Lock ─────────────────────────────────────────────────────
 // Prevents EADDRINUSE when user double-clicks the shortcut while app is running.
 const gotLock = app.requestSingleInstanceLock();
@@ -32,6 +37,67 @@ let activationWindow = null;
 let backendProcess = null;
 let pgInstance = null;
 let backendExitInfo = null; // set once backendProcess exits, read by waitForBackend for diagnostics
+let revocationCheckInterval = null;
+
+// Best-effort re-verification of the currently stored key against the
+// license server — this is the ONLY point where an already-activated
+// offline install ever talks to the server again. It exists purely to
+// notice when an admin/agent has upgraded or renewed the package (both
+// generate a brand-new key and revoke this one), so we can bring the
+// customer back to the activation screen instead of leaving them silently
+// stuck on their old plan forever. Any network failure (no internet, server
+// down, timeout) is swallowed — this must never disrupt normal offline use.
+async function checkForPackageRevocation() {
+  try {
+    const payload = checkLicense(app.getPath('userData'));
+    if (!payload || !payload.lk) return null;
+    const result = await activateLicense(payload.lk, DEFAULT_LICENSE_SERVER_URL, app.getPath('userData'));
+    if (!result.success && /revoked/i.test(result.error || '')) {
+      return 'revoked';
+    }
+  } catch {
+    // No internet / unreachable server — ignore, try again next interval.
+  }
+  return null;
+}
+
+// Called once revocation is confirmed. Deletes the stale local token so a
+// relaunch can't slip back in on it, warns whoever is at the till, then
+// swaps the main window for the activation screen.
+function triggerReactivation() {
+  if (revocationCheckInterval) {
+    clearInterval(revocationCheckInterval);
+    revocationCheckInterval = null;
+  }
+  try {
+    fs.unlinkSync(path.join(app.getPath('userData'), 'activation.token'));
+  } catch {}
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    dialog.showMessageBoxSync(mainWindow, {
+      type: 'info',
+      title: 'Package Updated',
+      message: 'Your subscription package has been updated by your administrator.',
+      detail: 'Click Continue to enter your new license key and activate your new plan.',
+      buttons: ['Continue'],
+    });
+    mainWindow.close();
+    mainWindow = null;
+  }
+
+  showActivationWindow('revoked');
+}
+
+function startRevocationChecks() {
+  checkForPackageRevocation().then((status) => {
+    if (status === 'revoked') triggerReactivation();
+  });
+  revocationCheckInterval = setInterval(() => {
+    checkForPackageRevocation().then((status) => {
+      if (status === 'revoked') triggerReactivation();
+    });
+  }, REVOCATION_CHECK_INTERVAL_MS);
+}
 
 // ─── IPC: Activation ─────────────────────────────────────────────────────────
 ipcMain.handle('activate-license', async (_event, { key, serverUrl }) => {
@@ -58,7 +124,7 @@ ipcMain.on('activation-complete', (_event, presetCredentials) => {
       console.error('[Main] Failed to write preset credentials:', err);
     }
   }
-  startApp().catch((err) => {
+  startApp().then(startRevocationChecks).catch((err) => {
     dialog.showErrorBox('Startup Error', err.message);
     app.quit();
   });
@@ -78,6 +144,7 @@ app.whenReady().then(async () => {
     showActivationWindow(reason);
   } else {
     await startApp();
+    startRevocationChecks();
   }
 });
 
@@ -99,8 +166,9 @@ function showActivationWindow(reason) {
     show: false,
     backgroundColor: '#0f0f0f',
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload-activation.js'),
     },
   });
 
@@ -124,8 +192,9 @@ function showSplash() {
     transparent: false,
     backgroundColor: '#0a0a0a',
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload-splash.js'),
     },
   });
 
@@ -660,6 +729,25 @@ async function runMigrations() {
       }
       console.log('[Main] Incremental migrations complete');
     }
+
+    // Sync the local package from the current valid license token, if any —
+    // the only way an offline install ever learns what package it's on,
+    // since this app never re-contacts the server after activation (see
+    // license.js's checkLicense/activateLicense). Runs on every launch so it
+    // also self-corrects right after a customer re-activates following a
+    // renewal or a package upgrade (both issue a brand-new key/token).
+    try {
+      const payload = checkLicense(app.getPath('userData'));
+      if (payload && payload.plan_key) {
+        const current = await client.query('SELECT plan_key FROM settings WHERE id = 1');
+        if (current.rows.length > 0 && current.rows[0].plan_key !== payload.plan_key) {
+          await client.query('UPDATE settings SET plan_key = $1, updated_at = NOW() WHERE id = 1', [payload.plan_key]);
+          console.log(`[Main] Synced local package to "${payload.plan_key}" from license`);
+        }
+      }
+    } catch (err) {
+      console.warn('[Main] Could not sync package from license:', err.message);
+    }
   } finally {
     await client.end().catch(() => {});
   }
@@ -667,6 +755,10 @@ async function runMigrations() {
 
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 function cleanup() {
+  if (revocationCheckInterval) {
+    clearInterval(revocationCheckInterval);
+    revocationCheckInterval = null;
+  }
   if (backendProcess) {
     backendProcess.kill('SIGTERM');
     backendProcess = null;

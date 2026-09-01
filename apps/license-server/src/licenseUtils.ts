@@ -60,6 +60,7 @@ export function getPublicKey(): crypto.KeyObject {
  *   fp: "sha256hexhash",         // machine fingerprint
  *   iat: 1234567890,             // issued at (unix timestamp)
  *   exp: 1234567890,             // optional: hard cutoff (unix timestamp) — see license.js's checkLicense()
+ *   plan_key: "professional",    // optional: which package this install should run as — see main.js's runMigrations()
  * }
  *
  * Token format: base64url(payload) + "." + base64url(signature)
@@ -67,13 +68,15 @@ export function getPublicKey(): crypto.KeyObject {
 export function createActivationToken(
   licenseKey: string,
   machineFingerprint: string,
-  expiresAt?: string | null
+  expiresAt?: string | null,
+  planKey?: string | null
 ): string {
   const payload = JSON.stringify({
     lk: licenseKey,
     fp: machineFingerprint,
     iat: Math.floor(Date.now() / 1000),
     ...(expiresAt ? { exp: Math.floor(new Date(expiresAt).getTime() / 1000) } : {}),
+    ...(planKey ? { plan_key: planKey } : {}),
   });
 
   const payloadB64 = Buffer.from(payload).toString('base64url');
