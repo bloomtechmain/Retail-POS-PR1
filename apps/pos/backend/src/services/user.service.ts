@@ -4,6 +4,7 @@ import { createError } from '../middleware/error';
 import { User } from '../types';
 import { PLANS, DEFAULT_PLAN_KEY } from '../data/plans';
 import { getCurrentTenantId } from '../config/tenantContext';
+import { markPasswordChanged } from '../utils/tokenRevocation';
 
 // `users` is the one table shared across every tenant (see tenantContext.ts)
 // rather than living inside each tenant's own schema, so every query here
@@ -33,6 +34,9 @@ export const createUser = async (data: {
   role_id: number;
   pin?: string;
 }): Promise<User> => {
+  if (!data.password || data.password.length < 6) {
+    throw createError('Password must be at least 6 characters', 400);
+  }
   const tenantId = getCurrentTenantId();
 
   const existing = await query(
@@ -95,6 +99,7 @@ export const updateUser = async (
   if (data.is_active !== undefined) { fields.push(`is_active = $${i++}`); values.push(data.is_active); }
   if (data.pin !== undefined) { fields.push(`pin = $${i++}`); values.push(data.pin || null); }
   if (data.password) {
+    if (data.password.length < 6) throw createError('Password must be at least 6 characters', 400);
     const hashed = await bcrypt.hash(data.password, 10);
     fields.push(`password = $${i++}`);
     values.push(hashed);
@@ -116,6 +121,7 @@ export const updateUser = async (
     values
   );
   if (result.rows.length === 0) throw createError('User not found', 404);
+  if (data.password) markPasswordChanged(id);
   return result.rows[0];
 };
 

@@ -406,6 +406,10 @@ export interface AuthPayload {
   // "sandbox" for Electron, which has no schema_name at all) instead of
   // the real one — see middleware/auth.ts's effective-schema computation.
   sandbox?: boolean;
+  // Added automatically by jsonwebtoken's sign()/verify() — declared here so
+  // token-revocation checks can read them without an unsafe cast.
+  iat?: number;
+  exp?: number;
 }
 
 export interface PaginatedResult<T> {

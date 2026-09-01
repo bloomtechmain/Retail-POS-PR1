@@ -69,14 +69,12 @@
   <p class="version" id="versionText">v1.0.0</p>
 
   <script>
-    const { ipcRenderer } = require('electron');
-
-    ipcRenderer.on('splash-status', (_event, { message, progress }) => {
+    window.electronAPI.onSplashStatus(({ message, progress }) => {
       document.getElementById('statusText').textContent = message;
       document.getElementById('progressFill').style.width = `${progress}%`;
     });
 
-    ipcRenderer.on('splash-version', (_event, version) => {
+    window.electronAPI.onSplashVersion((version) => {
       document.getElementById('versionText').textContent = `v${version}`;
     });
   </script>

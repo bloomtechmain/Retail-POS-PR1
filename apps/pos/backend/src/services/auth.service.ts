@@ -5,6 +5,7 @@ import { createError } from '../middleware/error';
 import { AuthPayload } from '../types';
 import { ensureSandboxSchema } from './tenant.service';
 import { peekPresetAdminCredentials, consumePresetAdminCredentials } from './settings.service';
+import { markPasswordChanged } from '../utils/tokenRevocation';
 
 // Electron-only. On a fresh offline install, the only account that exists
 // is the hardcoded bootstrap admin from database/schema.sql
@@ -175,4 +176,5 @@ export const changePassword = async (userId: number, currentPassword: string, ne
 
   const hashed = await bcrypt.hash(newPassword, 10);
   await query('UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2', [hashed, userId]);
+  markPasswordChanged(userId);
 };

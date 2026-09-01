@@ -1,13 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import * as authService from '../services/auth.service';
 import { AuthRequest } from '../middleware/auth';
+import { isRateLimited, recordFailedAttempt, clearAttempts } from '../utils/rateLimiter';
 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
+  const { email, password } = req.body;
+  const rateLimitKey = `${req.ip}:${(email || '').toLowerCase()}`;
   try {
-    const { email, password } = req.body;
+    const retryAfter = isRateLimited(rateLimitKey);
+    if (retryAfter !== null) {
+      res.status(429).json({
+        success: false,
+        message: `Too many failed login attempts. Try again in ${retryAfter} seconds.`,
+      });
+      return;
+    }
     const result = await authService.loginUser(email, password);
+    clearAttempts(rateLimitKey);
     res.json({ success: true, ...result });
-  } catch (err) { next(err); }
+  } catch (err) {
+    recordFailedAttempt(rateLimitKey);
+    next(err);
+  }
 };
 
 export const me = async (req: AuthRequest, res: Response, next: NextFunction) => {

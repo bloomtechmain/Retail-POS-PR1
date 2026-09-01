@@ -4,6 +4,7 @@ import { AuthPayload } from '../types';
 import { query } from '../config/database';
 import { planIncludes, FeatureKey } from '../data/plans';
 import { runWithTenant } from '../config/tenantContext';
+import { isTokenRevoked } from '../utils/tokenRevocation';
 
 export interface AuthRequest extends Request {
   user?: AuthPayload;
@@ -28,6 +29,10 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
 
     const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
+    if (isTokenRevoked(decoded.id, decoded.iat)) {
+      res.status(401).json({ success: false, message: 'Session expired — please log in again' });
+      return;
+    }
     req.user = decoded;
     const schema = effectiveSchema(decoded);
     if (schema) {
