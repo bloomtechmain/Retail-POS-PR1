@@ -1,8 +1,29 @@
-// Talks to the locally-installed BloomPOS Print Agent (a small Electron tray
-// app the customer downloads from Settings) so bills print silently to a
-// physical receipt printer instead of opening the browser's print dialog.
-// The agent only ever listens on the loopback interface, so this is the one
-// place in the online POS that legitimately calls a fixed localhost port.
+// Prints bills silently instead of opening the browser/OS print dialog.
+// Two backends, same API surface:
+//   - Offline (Electron) POS: printing happens in-process via IPC
+//     (window.electronPrintAPI, exposed by apps/pos/electron/preload-main.js)
+//     — always available, nothing to install.
+//   - Online (browser) POS: talks to the separately-installed BloomPOS Print
+//     Agent (a small Electron tray app) over its local HTTP server. The
+//     agent only ever listens on the loopback interface, so this is the one
+//     place in the online POS that legitimately calls a fixed localhost port.
+interface ElectronPrintAPI {
+  getPrinters: () => Promise<string[]>;
+  getConfig: () => Promise<{ defaultPrinter: string | null }>;
+  saveConfig: (config: { defaultPrinter: string }) => Promise<{ defaultPrinter: string | null }>;
+  print: (html: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+declare global {
+  interface Window {
+    electronPrintAPI?: ElectronPrintAPI;
+  }
+}
+
+export function isElectronPrint(): boolean {
+  return typeof window !== 'undefined' && !!window.electronPrintAPI;
+}
+
 const PRINT_AGENT_URL = 'http://127.0.0.1:41205';
 
 // Short timeout so an absent/not-installed agent fails fast (a few hundred
@@ -20,6 +41,7 @@ async function agentFetch(path: string, init?: RequestInit): Promise<Response> {
 }
 
 export async function checkPrintAgentStatus(): Promise<boolean> {
+  if (isElectronPrint()) return true;
   try {
     const res = await agentFetch('/health');
     return res.ok;
@@ -29,6 +51,7 @@ export async function checkPrintAgentStatus(): Promise<boolean> {
 }
 
 export async function getAgentPrinters(): Promise<string[]> {
+  if (isElectronPrint()) return window.electronPrintAPI!.getPrinters();
   const res = await agentFetch('/printers');
   if (!res.ok) throw new Error('Could not reach Print Agent');
   const data = await res.json();
@@ -36,6 +59,10 @@ export async function getAgentPrinters(): Promise<string[]> {
 }
 
 export async function getAgentDefaultPrinter(): Promise<string | null> {
+  if (isElectronPrint()) {
+    const config = await window.electronPrintAPI!.getConfig();
+    return config.defaultPrinter;
+  }
   const res = await agentFetch('/config');
   if (!res.ok) throw new Error('Could not reach Print Agent');
   const data = await res.json();
@@ -43,6 +70,10 @@ export async function getAgentDefaultPrinter(): Promise<string | null> {
 }
 
 export async function setAgentDefaultPrinter(defaultPrinter: string): Promise<void> {
+  if (isElectronPrint()) {
+    await window.electronPrintAPI!.saveConfig({ defaultPrinter });
+    return;
+  }
   const res = await agentFetch('/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,6 +83,9 @@ export async function setAgentDefaultPrinter(defaultPrinter: string): Promise<vo
 }
 
 export async function sendPrintJob(html: string): Promise<{ success: boolean; error?: string }> {
+  if (isElectronPrint()) {
+    return window.electronPrintAPI!.print(html);
+  }
   try {
     const res = await agentFetch('/print', {
       method: 'POST',

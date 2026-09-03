@@ -4,6 +4,7 @@ import {
   checkPrintAgentStatus,
   getAgentDefaultPrinter,
   getAgentPrinters,
+  isElectronPrint,
   setAgentDefaultPrinter,
 } from '../../utils/printAgent';
 
@@ -60,7 +61,9 @@ export function PrintAgentCard() {
         <div>
           <h3 className="font-semibold text-surface-900">Receipt Printer</h3>
           <p className="text-surface-500 text-sm mt-0.5">
-            Install the Print Agent once so bills print straight to your receipt printer — no print dialog.
+            {isElectronPrint()
+              ? 'Choose which printer this device prints receipts to — no print dialog.'
+              : 'Install the Print Agent once so bills print straight to your receipt printer — no print dialog.'}
           </p>
         </div>
         {state === 'checking' && (
@@ -71,12 +74,12 @@ export function PrintAgentCard() {
         )}
         {state === 'online' && (
           <span className="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-            {selected ? `Ready — ${selected}` : 'Installed — pick a printer'}
+            {selected ? `Ready — ${selected}` : isElectronPrint() ? 'Pick a printer' : 'Installed — pick a printer'}
           </span>
         )}
       </div>
 
-      {state === 'offline' && (
+      {state === 'offline' && !isElectronPrint() && (
         <a href="/downloads/BloomPOS-PrintAgent-Setup.exe" className="btn-primary inline-block">
           Download Print Agent
         </a>

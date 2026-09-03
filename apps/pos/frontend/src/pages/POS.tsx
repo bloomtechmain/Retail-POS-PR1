@@ -12,7 +12,7 @@ import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { useSettingsStore } from '../store/settingsStore';
 import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit, convertFromBaseUnit } from '../utils/units';
-import { buildPrintableDocument, sendPrintJob } from '../utils/printAgent';
+import { buildPrintableDocument, isElectronPrint, sendPrintJob } from '../utils/printAgent';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -363,7 +363,8 @@ function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => voi
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <span>
-            <strong>Printer not set up.</strong> Opened the browser print dialog instead — install the Print Agent under{' '}
+            <strong>Printer not set up.</strong> Opened the browser print dialog instead —{' '}
+            {isElectronPrint() ? 'configure your printer' : 'install the Print Agent'} under{' '}
             <Link to="/settings" className="underline font-medium">Settings</Link> to print bills automatically next time.
           </span>
         </div>

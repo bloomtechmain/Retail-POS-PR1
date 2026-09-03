@@ -130,6 +130,116 @@ ipcMain.on('activation-complete', (_event, presetCredentials) => {
   });
 });
 
+// ─── Printer setup (offline printing, in-process — no separate agent app) ───
+// Same job the standalone online Print Agent does (apps/print-agent/main.js),
+// done in-process here since the offline POS is already an Electron app.
+function getPrinterConfigPath() {
+  return path.join(app.getPath('userData'), 'printer-config.json');
+}
+
+function readPrinterConfig() {
+  try {
+    const raw = fs.readFileSync(getPrinterConfigPath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    return { defaultPrinter: parsed.defaultPrinter || null };
+  } catch {
+    return { defaultPrinter: null };
+  }
+}
+
+function writePrinterConfig(config) {
+  fs.mkdirSync(app.getPath('userData'), { recursive: true });
+  fs.writeFileSync(getPrinterConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+}
+
+// A hidden, sandboxed window is the only way Electron exposes
+// getPrintersAsync()/print() — it never becomes visible to the user.
+function createHiddenPrintWindow() {
+  return new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+}
+
+async function listPrinters() {
+  const win = createHiddenPrintWindow();
+  try {
+    const printers = await win.webContents.getPrintersAsync();
+    return printers.map((p) => p.name);
+  } finally {
+    win.close();
+  }
+}
+
+// Some printer types (notably virtual "print to PDF/XPS" writers) never
+// invoke the print() callback under silent:true — Windows still wants an
+// interactive save-location dialog that silent printing can't show, so the
+// callback just never fires. A hard timeout turns that into a clear error
+// instead of hanging the caller forever. Real physical/thermal printers
+// don't have this problem — there's no destination to pick.
+const PRINT_TIMEOUT_MS = 20000;
+
+function printHtml(html, deviceName) {
+  return new Promise((resolve, reject) => {
+    if (!deviceName) {
+      reject(new Error('No default printer configured. Open Settings and pick a printer first.'));
+      return;
+    }
+
+    let settled = false;
+    const win = createHiddenPrintWindow();
+    const cleanup = () => {
+      if (!win.isDestroyed()) win.close();
+    };
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      settle(reject, new Error('Print timed out — this printer may need an interactive dialog that silent printing can\'t show.'));
+    }, PRINT_TIMEOUT_MS);
+
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.print(
+        { silent: true, deviceName, printBackground: true, margins: { marginType: 'none' } },
+        (success, failureReason) => {
+          if (success) settle(resolve);
+          else settle(reject, new Error(failureReason || 'Print failed'));
+        }
+      );
+    });
+    win.webContents.once('did-fail-load', (_event, _code, description) => {
+      settle(reject, new Error(`Failed to load receipt content: ${description}`));
+    });
+
+    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  });
+}
+
+ipcMain.handle('printer:list', () => listPrinters());
+ipcMain.handle('printer:get-config', () => readPrinterConfig());
+ipcMain.handle('printer:save-config', (_event, config) => {
+  const next = { defaultPrinter: (config && config.defaultPrinter) || null };
+  writePrinterConfig(next);
+  return next;
+});
+ipcMain.handle('printer:print', async (_event, html) => {
+  try {
+    const config = readPrinterConfig();
+    await printHtml(html, config.defaultPrinter);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // ─── App Ready ────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   // Check license first
@@ -597,6 +707,7 @@ function createMainWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       devTools: !app.isPackaged,
+      preload: path.join(__dirname, 'preload-main.js'),
     },
     titleBarStyle: 'default',
     title: 'BloomPOS',
