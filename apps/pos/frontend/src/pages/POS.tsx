@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
@@ -11,6 +12,7 @@ import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { useSettingsStore } from '../store/settingsStore';
 import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit, convertFromBaseUnit } from '../utils/units';
+import { buildPrintableDocument, sendPrintJob } from '../utils/printAgent';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -285,7 +287,31 @@ function PaymentModal({
 // ─── Receipt Modal ────────────────────────────────────────────────────────────
 function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => void }) {
   const t = useT();
+  const toast = useToastStore();
   const { settings } = useSettingsStore();
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [showSetupBanner, setShowSetupBanner] = useState(false);
+
+  const handlePrint = async () => {
+    setIsPrinting(true);
+    try {
+      const html = await buildPrintableDocument('receipt');
+      const result = await sendPrintJob(html);
+      if (result.success) {
+        setShowSetupBanner(false);
+        toast.success('Receipt sent to printer');
+      } else {
+        setShowSetupBanner(true);
+        window.print();
+      }
+    } catch {
+      setShowSetupBanner(true);
+      window.print();
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
   if (!sale) return null;
   return (
     <Modal isOpen={!!sale} onClose={onClose} title={t.pos_receipt_title} size="sm">
@@ -331,8 +357,22 @@ function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => voi
         </p>
       </div>
 
+      {showSetupBanner && (
+        <div className="mt-3 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-800 no-print">
+          <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>
+            <strong>Printer not set up.</strong> Opened the browser print dialog instead — install the Print Agent under{' '}
+            <Link to="/settings" className="underline font-medium">Settings</Link> to print bills automatically next time.
+          </span>
+        </div>
+      )}
+
       <div className="flex gap-2 mt-4 no-print">
-        <button onClick={() => window.print()} className="btn-secondary flex-1">🖨️ {t.pos_print}</button>
+        <button onClick={handlePrint} disabled={isPrinting} className="btn-secondary flex-1">
+          {isPrinting ? <LoadingSpinner size="sm" /> : `🖨️ ${t.pos_print}`}
+        </button>
         <button onClick={onClose} className="btn-primary flex-1">{t.pos_new_sale}</button>
       </div>
     </Modal>

@@ -1,0 +1,20 @@
+{
+  "name": "bloompos-print-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BloomPOS Print Agent — local silent receipt printing for the online POS",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --win"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "electron": "^31.0.2",
+    "electron-builder": "^24.13.3"
+  }
+}

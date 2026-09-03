@@ -1,0 +1,35 @@
+appId: com.bloompos.printagent
+productName: BloomPOS Print Agent
+copyright: Copyright © 2025 BloomPOS
+
+# Windows' native Tray icon loader can't read files from inside app.asar
+# (it fails with "Failed to load image from path ...app.asar\..."), which
+# silently killed the whole main-process startup chain — the HTTP server
+# never got a chance to bind. Disabling asar for this small app is simpler
+# and safer than asarUnpack-ing just the icon.
+asar: false
+
+# Own output dir so this never collides with the POS app's dist-electron
+# (built from the repo-root electron-builder.yml).
+directories:
+  output: dist-electron
+  buildResources: build-assets
+
+win:
+  icon: build-assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BloomPOS Print Agent
+  runAfterFinish: true
+  perMachine: true
+  deleteAppDataOnUninstall: false

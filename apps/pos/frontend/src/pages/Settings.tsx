@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { BusinessProfileForm, BusinessProfileValue } from '../components/settings/BusinessProfileForm';
 import { TaxRatesManager } from '../components/settings/TaxRatesManager';
+import { PrintAgentCard } from '../components/settings/PrintAgentCard';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -236,6 +237,8 @@ export default function SettingsPage() {
           {plans.find((p) => p.key === settings?.plan_key)?.name || settings?.plan_key}
         </div>
       </div>
+
+      <PrintAgentCard />
 
       {hasFeature('vat_invoice') && (
         <div className="card p-6 mt-6">

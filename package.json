@@ -24,7 +24,10 @@
     "license-server:setup": "npm run setup --prefix apps/license-server",
     "license-server:dev": "npm run dev --prefix apps/license-server",
     "license-server:build": "npm run build --prefix apps/license-server",
-    "license-server:start": "npm run start --prefix apps/license-server"
+    "license-server:start": "npm run start --prefix apps/license-server",
+    "printagent:install": "npm install --prefix apps/print-agent",
+    "printagent:dev": "npm run dev --prefix apps/print-agent",
+    "printagent:build": "npm run build --prefix apps/print-agent"
   },
   "dependencies": {
     "embedded-postgres": "18.3.0-beta.17"

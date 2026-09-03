@@ -48,6 +48,13 @@ app.get('/health', (_req, res) => {
 // ── API routes ──────────────────────────────────────────────────────────────
 app.use('/api', routes);
 
+// ── Installer downloads (Print Agent, etc.) ────────────────────────────────
+// In production this is normally intercepted by nginx serving the same
+// repo-root downloads/ folder directly (see AWS deployment notes) — this
+// route exists so the same /downloads/* links work against the local dev
+// server too, with no separate setup needed.
+app.use('/downloads', express.static(path.join(__dirname, '..', '..', '..', '..', 'downloads')));
+
 // ── Static frontend ─────────────────────────────────────────────────────────
 // Served by backend in two cases:
 //   1. Electron packaged app  (ELECTRON_APP=1, path set by main.js via FRONTEND_DIST)

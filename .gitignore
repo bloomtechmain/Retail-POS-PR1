@@ -14,6 +14,7 @@ apps/website/dist/
 apps/admin-dashboard/frontend/dist/
 apps/admin-dashboard/backend/dist/
 dist-electron/
+downloads/
 
 # ── Environment / secrets ──────────────────────────────────────────────────────
 .env
@@ -60,3 +61,6 @@ pgdata/
 
 # ── AWS ops reference (contains real production credentials) ─────────────────
 AWS_OPERATIONS.md
+
+# ── Root-level report/reference PDFs (not project source) ─────────────────────
+/*.pdf
