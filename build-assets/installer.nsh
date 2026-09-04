@@ -19,6 +19,15 @@
 !macroend
 
 !macro customUnInstall
-  ; Remove user data on uninstall (optional — commented out to preserve data)
-  ; RMDir /r "$APPDATA\RetailPOS"
+  ; Clear license/activation state so a reinstall always requires the
+  ; license key again — runs on every explicit uninstall AND on every
+  ; version upgrade (the NSIS installer silently uninstalls the previous
+  ; version first). Deliberately leaves pgdata/ (local sales, inventory,
+  ; users) untouched so upgrades never lose a customer's real data.
+  ;
+  ; NOTE: Electron's userData folder is named after package.json's "name"
+  ; field ("retail-pos"), NOT the productName ("BloomPOS") — verify with
+  ; app.getPath('userData') before changing this path.
+  Delete "$APPDATA\retail-pos\activation.token"
+  Delete "$APPDATA\retail-pos\preset-credentials.json"
 !macroend

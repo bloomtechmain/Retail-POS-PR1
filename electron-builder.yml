@@ -47,6 +47,7 @@ win:
 
 # NSIS installer wizard settings
 nsis:
+  include: build-assets/installer.nsh
   oneClick: false
   allowToChangeInstallationDirectory: true
   allowElevation: true
