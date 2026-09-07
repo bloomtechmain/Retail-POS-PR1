@@ -8,5 +8,13 @@ contextBridge.exposeInMainWorld('electronPrintAPI', {
   getPrinters: () => ipcRenderer.invoke('printer:list'),
   getConfig: () => ipcRenderer.invoke('printer:get-config'),
   saveConfig: (config) => ipcRenderer.invoke('printer:save-config', config),
-  print: (html) => ipcRenderer.invoke('printer:print', html),
+  print: (html, target) => ipcRenderer.invoke('printer:print', html, target),
+});
+
+// Only meaningful on a Terminal machine — undefined/unused on a standalone
+// or Server install (isTerminal() below is how the frontend tells which).
+contextBridge.exposeInMainWorld('electronTerminalAPI', {
+  isTerminal: () => ipcRenderer.invoke('terminal:get-role'),
+  disconnect: () => ipcRenderer.invoke('terminal:disconnect'),
+  getServerInfo: () => ipcRenderer.invoke('terminal:get-server-info'),
 });

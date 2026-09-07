@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import path from 'path';
 import routes from './routes';
+import terminalPairingRoutes from './routes/terminalPairing.routes';
 import { errorHandler, notFound } from './middleware/error';
 import { runMigrations } from './config/migrate';
 
@@ -46,6 +47,10 @@ app.get('/health', (_req, res) => {
 });
 
 // ── API routes ──────────────────────────────────────────────────────────────
+// Terminal pairing is intentionally public (see terminalPairing.routes.ts) —
+// mounted before the authenticated router so it's never accidentally
+// shadowed by a stricter /api-wide guard added later.
+app.use('/api/terminal', terminalPairingRoutes);
 app.use('/api', routes);
 
 // ── Installer downloads (Print Agent, etc.) ────────────────────────────────

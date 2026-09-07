@@ -5,17 +5,26 @@ export type FeatureKey =
   | 'reports'
   | 'users'
   | 'promotions'
+  | 'coupons'
   | 'customers'
   | 'fifo_costing'
   | 'multi_language'
   | 'multi_currency'
-  | 'vat_invoice';
+  | 'vat_invoice'
+  | 'restaurant_mode'
+  | 'kot_printing'
+  | 'multi_terminal';
 
 export interface Plan {
   key: string;
   name: string;
   tagline: string;
   max_users: number | null; // null = unlimited
+  // Offline (Electron) multi-terminal/LAN mode only — how many Terminal
+  // machines may pair with one Server. Unrelated to max_users, which caps
+  // login accounts, not physical machines. null = unlimited, 0 = none
+  // (the default for every tier below the one that includes 'multi_terminal').
+  max_terminals: number | null;
   features: FeatureKey[];
 }
 
@@ -25,6 +34,7 @@ export const PLANS: Record<string, Plan> = {
     name: 'Basic',
     tagline: 'A single till, keep it simple',
     max_users: 1,
+    max_terminals: 0,
     features: [],
   },
   standard: {
@@ -32,21 +42,24 @@ export const PLANS: Record<string, Plan> = {
     name: 'Standard',
     tagline: 'Growing shop, more than one cashier',
     max_users: 5,
-    features: ['reports', 'users', 'promotions'],
+    max_terminals: 0,
+    features: ['reports', 'users', 'promotions', 'coupons'],
   },
   professional: {
     key: 'professional',
     name: 'Professional',
     tagline: 'Credit customers, batch costing, multi-branch-ready',
     max_users: 15,
-    features: ['reports', 'users', 'promotions', 'customers', 'fifo_costing', 'multi_language', 'multi_currency'],
+    max_terminals: 0,
+    features: ['reports', 'users', 'promotions', 'coupons', 'customers', 'fifo_costing', 'multi_language', 'multi_currency', 'restaurant_mode', 'kot_printing'],
   },
   enterprise: {
     key: 'enterprise',
     name: 'Enterprise',
     tagline: 'Full compliance tooling, unlimited staff',
     max_users: null,
-    features: ['reports', 'users', 'promotions', 'customers', 'fifo_costing', 'multi_language', 'multi_currency', 'vat_invoice'],
+    max_terminals: 5,
+    features: ['reports', 'users', 'promotions', 'coupons', 'customers', 'fifo_costing', 'multi_language', 'multi_currency', 'vat_invoice', 'restaurant_mode', 'kot_printing', 'multi_terminal'],
   },
 };
 

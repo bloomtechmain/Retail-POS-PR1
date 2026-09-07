@@ -14,6 +14,8 @@ router.get('/inventory', reportController.inventoryReport);
 router.get('/sales', requireFeature('reports'), reportController.salesReport);
 router.get('/product-sales', requireFeature('reports'), reportController.productSalesReport);
 router.get('/cashiers', requireFeature('reports'), reportController.cashierReport);
+router.get('/stock-movements', requireFeature('reports'), reportController.stockMovementReport);
+router.get('/promotions', requireFeature('reports'), reportController.promotionsReport);
 router.get('/credit', requireFeature('reports'), reportController.creditReport);
 
 export default router;

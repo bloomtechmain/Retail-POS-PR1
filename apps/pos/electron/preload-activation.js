@@ -7,4 +7,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   activateLicense: (payload) => ipcRenderer.invoke('activate-license', payload),
   notifyActivationComplete: (payload) => ipcRenderer.send('activation-complete', payload),
+  testServerConnection: (payload) => ipcRenderer.invoke('terminal:test-connection', payload),
+  connectAsTerminal: (payload) => ipcRenderer.invoke('terminal:connect', payload),
 });

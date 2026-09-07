@@ -15,7 +15,7 @@ const RETURNS_IN_RANGE_SUBQUERY = (dateCol: string) => `
 export const getDashboardStats = async () => {
   const today = new Date().toISOString().slice(0, 10);
 
-  const [todayStats, monthStats, weekStats, lowStockCount, openShift, topProducts, revenueTrend] =
+  const [todayStats, monthStats, weekStats, lowStockCount, openShift, topProducts, revenueTrend, paymentMethodMix] =
     await Promise.all([
       query(
         `SELECT
@@ -119,6 +119,14 @@ export const getDashboardStats = async () => {
          ORDER BY date ASC`,
         []
       ),
+      query(
+        `SELECT payment_method, COALESCE(SUM(total_amount), 0) as revenue
+         FROM sales
+         WHERE status IN ('completed','refunded') AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
+         GROUP BY payment_method
+         ORDER BY revenue DESC`,
+        []
+      ),
     ]);
 
   return {
@@ -133,6 +141,7 @@ export const getDashboardStats = async () => {
     open_shift: openShift.rows[0] || null,
     top_products: topProducts.rows,
     revenue_trend: revenueTrend.rows,
+    payment_method_mix: paymentMethodMix.rows,
   };
 };
 
@@ -284,6 +293,49 @@ export const getCreditReport = async () => {
   );
 
   return { customers: customersResult.rows, summary: summaryResult.rows[0] };
+};
+
+export const getStockMovementReport = async (params: { date_from: string; date_to: string }) => {
+  const result = await query(
+    `SELECT
+       sm.id, sm.product_id, p.name as product_name, p.sku, sm.movement_type,
+       sm.quantity, sm.balance_before, sm.balance_after, sm.unit_cost,
+       sm.reference_type, sm.reference_id, sm.notes, sm.created_at
+     FROM stock_movements sm
+     JOIN products p ON sm.product_id = p.id
+     WHERE sm.created_at BETWEEN $1 AND $2
+     ORDER BY sm.created_at DESC`,
+    [params.date_from, params.date_to + ' 23:59:59']
+  );
+  return result.rows;
+};
+
+export const getPromotionsReport = async (params: { date_from: string; date_to: string }) => {
+  const range = [params.date_from, params.date_to + ' 23:59:59'];
+
+  const promotions = await query(
+    `SELECT pr.id, pr.name, COUNT(DISTINCT si.sale_id) as times_used,
+       COALESCE(SUM(si.item_discount * si.quantity), 0) as total_discount
+     FROM sale_items si
+     JOIN promotions pr ON si.promotion_id = pr.id
+     JOIN sales s ON si.sale_id = s.id
+     WHERE s.status IN ('completed','refunded') AND s.created_at BETWEEN $1 AND $2
+     GROUP BY pr.id, pr.name
+     ORDER BY total_discount DESC`,
+    range
+  );
+
+  const coupons = await query(
+    `SELECT c.id, c.code, COUNT(s.id) as times_used, COALESCE(SUM(s.coupon_discount), 0) as total_discount
+     FROM sales s
+     JOIN coupons c ON s.coupon_id = c.id
+     WHERE s.status IN ('completed','refunded') AND s.created_at BETWEEN $1 AND $2
+     GROUP BY c.id, c.code
+     ORDER BY total_discount DESC`,
+    range
+  );
+
+  return { promotions: promotions.rows, coupons: coupons.rows };
 };
 
 export const getCashierReport = async (params: { date_from: string; date_to: string }) => {

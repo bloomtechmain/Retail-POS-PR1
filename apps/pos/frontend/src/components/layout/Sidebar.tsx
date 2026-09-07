@@ -20,7 +20,7 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
   const t = useT();
   const hasShopBranding = Boolean(settings?.setup_completed && settings.business_name);
 
-  const navItems: Array<{ path: string; label: string; roles?: string[]; feature?: FeatureKey; icon: JSX.Element }> = [
+  const navItems: Array<{ path: string; label: string; roles?: string[]; feature?: FeatureKey; requiresRestaurantMode?: boolean; icon: JSX.Element }> = [
     { path: '/dashboard', label: t.nav_dashboard, roles: ['admin', 'manager'], icon: (
       <svg className="w-4.5 h-4.5 w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -29,6 +29,11 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
     { path: '/pos', label: t.nav_pos, roles: undefined, icon: (
       <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>
+    )},
+    { path: '/tables', label: t.nav_tables, roles: undefined, feature: 'restaurant_mode', requiresRestaurantMode: true, icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 10h18M5 6h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zM8 14v4m8-4v4" />
       </svg>
     )},
     { path: '/products', label: t.nav_products, roles: ['admin', 'manager'], icon: (
@@ -87,6 +92,7 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
   const visibleItems = navItems.filter((item) => {
     if (item.roles && !item.roles.includes(user?.role_name || '')) return false;
     if (item.feature && !hasFeature(item.feature)) return false;
+    if (item.requiresRestaurantMode && !settings?.restaurant_mode_enabled) return false;
     return true;
   });
 

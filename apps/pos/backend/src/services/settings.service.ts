@@ -20,6 +20,7 @@ export const GENERIC_DEFAULTS: Settings = {
   currency_symbol: '$',
   plan_key: DEFAULT_PLAN_KEY,
   setup_completed: false,
+  restaurant_mode_enabled: false,
   created_at: new Date(0),
   updated_at: new Date(0),
 };
@@ -77,6 +78,7 @@ export const updateSettings = async (
     currency_code: string;
     currency_symbol: string;
     vat_registration_number: string;
+    restaurant_mode_enabled: boolean;
   }>
 ): Promise<Settings> => {
   const existing = await getSettings();
@@ -85,7 +87,7 @@ export const updateSettings = async (
     `UPDATE settings SET
        business_name = $1, business_type = $2, logo_data_url = $3, address = $4,
        phone = $5, email = $6, currency_code = $7, currency_symbol = $8,
-       vat_registration_number = $9, updated_at = NOW()
+       vat_registration_number = $9, restaurant_mode_enabled = $10, updated_at = NOW()
      WHERE id = 1 RETURNING *`,
     [
       data.business_name?.trim() || existing.business_name,
@@ -97,6 +99,7 @@ export const updateSettings = async (
       data.currency_code?.trim() || existing.currency_code,
       data.currency_symbol?.trim() || existing.currency_symbol,
       data.vat_registration_number ?? existing.vat_registration_number,
+      data.restaurant_mode_enabled ?? existing.restaurant_mode_enabled,
     ]
   );
   return result.rows[0];

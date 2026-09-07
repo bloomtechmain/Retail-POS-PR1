@@ -145,6 +145,28 @@
     <div class="success-msg" id="successMsg">✓ Activation successful! Starting application…</div>
 
     <p class="hint">Requires an internet connection to verify your license.</p>
+
+    <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid #2a2a2a;">
+      <span class="server-toggle" onclick="toggleTerminal()" id="terminalToggle">🖥 Connect to a Server instead</span>
+    </div>
+
+    <div class="server-field" id="terminalField">
+      <p class="hint" style="margin-bottom:12px;">
+        For an additional till on the same network as another BloomPOS machine that's already set up (a "Server"). This device won't have its own database — it just connects to the Server's.
+      </p>
+      <div class="field">
+        <label>Server IP Address</label>
+        <input id="terminalHostInput" type="text" placeholder="e.g. 192.168.1.10" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Port (usually 5000)</label>
+        <input id="terminalPortInput" type="text" value="5000" spellcheck="false" autocomplete="off" />
+      </div>
+      <button class="btn" id="testConnBtn" onclick="testConnection()" style="background:#333;color:#ddd;margin-bottom:8px;">Test Connection</button>
+      <button class="btn btn-primary" id="connectBtn" onclick="connectAsTerminal()">Connect</button>
+      <div class="error-msg" id="terminalErrorMsg"></div>
+      <div class="success-msg" id="terminalSuccessMsg">✓ Connected! Restarting as a Terminal…</div>
+    </div>
   </div>
 
   <script>
@@ -213,6 +235,65 @@
     document.getElementById('keyInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') activate();
     });
+
+    function toggleTerminal() {
+      const field = document.getElementById('terminalField');
+      const toggle = document.getElementById('terminalToggle');
+      const visible = field.classList.toggle('visible');
+      toggle.textContent = visible ? '🖥 Activate normally instead' : '🖥 Connect to a Server instead';
+    }
+
+    async function testConnection() {
+      const host = document.getElementById('terminalHostInput').value.trim();
+      const port = document.getElementById('terminalPortInput').value.trim() || '5000';
+      const errEl = document.getElementById('terminalErrorMsg');
+      const okEl = document.getElementById('terminalSuccessMsg');
+      errEl.classList.remove('visible');
+      okEl.classList.remove('visible');
+      if (!host) { errEl.textContent = 'Enter the Server\'s IP address first.'; errEl.classList.add('visible'); return; }
+
+      const btn = document.getElementById('testConnBtn');
+      btn.disabled = true;
+      btn.textContent = 'Testing…';
+      const result = await window.electronAPI.testServerConnection({ host, port });
+      btn.disabled = false;
+      btn.textContent = 'Test Connection';
+
+      if (result.success) {
+        okEl.textContent = '✓ Server is reachable.';
+        okEl.classList.add('visible');
+      } else {
+        errEl.textContent = `Could not reach ${host}:${port} — ${result.error || 'no response'}.`;
+        errEl.classList.add('visible');
+      }
+    }
+
+    async function connectAsTerminal() {
+      const host = document.getElementById('terminalHostInput').value.trim();
+      const port = document.getElementById('terminalPortInput').value.trim() || '5000';
+      const errEl = document.getElementById('terminalErrorMsg');
+      const okEl = document.getElementById('terminalSuccessMsg');
+      errEl.classList.remove('visible');
+      okEl.classList.remove('visible');
+      if (!host) { errEl.textContent = 'Enter the Server\'s IP address first.'; errEl.classList.add('visible'); return; }
+
+      const btn = document.getElementById('connectBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Connecting…';
+
+      const result = await window.electronAPI.connectAsTerminal({ host, port });
+
+      if (result.success) {
+        okEl.classList.add('visible');
+        btn.style.display = 'none';
+        document.getElementById('testConnBtn').style.display = 'none';
+      } else {
+        errEl.textContent = result.error || 'Could not connect to that Server.';
+        errEl.classList.add('visible');
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
+    }
   </script>
 </body>
 </html>

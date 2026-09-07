@@ -3,6 +3,7 @@ import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { Customer, CustomerStatementEntry } from '../types';
 import api from '../services/api';
 import { AxiosError } from 'axios';
@@ -10,10 +11,12 @@ import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 const emptyForm = {
   name: '', phone: '', email: '', address: '', credit_limit: '', notes: '',
+  is_vat_customer: false, vat_reg_no: '',
 };
 
 export default function Customers() {
   const toast = useToastStore();
+  const { hasFeature } = useSettingsStore();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -49,6 +52,7 @@ export default function Customers() {
     setForm({
       name: c.name, phone: c.phone || '', email: c.email || '', address: c.address || '',
       credit_limit: c.credit_limit == null ? '' : String(c.credit_limit), notes: c.notes || '',
+      is_vat_customer: c.is_vat_customer || false, vat_reg_no: c.vat_reg_no || '',
     });
     setFormModal(true);
   };
@@ -57,6 +61,11 @@ export default function Customers() {
     if (!form.name.trim()) { toast.error('Customer name is required'); return; }
     setSaving(true);
     try {
+      if (form.is_vat_customer && !form.vat_reg_no.trim()) {
+        toast.error('Enter a VAT registration number for a VAT-registered customer');
+        setSaving(false);
+        return;
+      }
       const payload = {
         name: form.name.trim(),
         phone: form.phone || undefined,
@@ -64,6 +73,8 @@ export default function Customers() {
         address: form.address || undefined,
         credit_limit: form.credit_limit.trim() === '' ? null : parseFloat(form.credit_limit),
         notes: form.notes || undefined,
+        is_vat_customer: form.is_vat_customer,
+        vat_reg_no: form.is_vat_customer ? form.vat_reg_no.trim() : undefined,
       };
       if (editing) {
         await api.put(`/customers/${editing.id}`, payload);
@@ -241,6 +252,25 @@ export default function Customers() {
             <label className="label">Notes</label>
             <input className="input" value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
+          {hasFeature('vat_invoice') && (
+            <div className="border-t border-surface-200 pt-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.is_vat_customer}
+                  onChange={(e) => setForm(f => ({ ...f, is_vat_customer: e.target.checked }))}
+                />
+                <span className="text-sm font-medium text-surface-700">VAT-registered customer</span>
+              </label>
+              {form.is_vat_customer && (
+                <div className="mt-2">
+                  <label className="label">VAT Registration Number <span className="text-red-500">*</span></label>
+                  <input className="input" value={form.vat_reg_no} onChange={(e) => setForm(f => ({ ...f, vat_reg_no: e.target.value }))} />
+                  <p className="text-xs text-surface-400 mt-1">Saved here so it auto-fills every VAT invoice generated for this customer.</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
 

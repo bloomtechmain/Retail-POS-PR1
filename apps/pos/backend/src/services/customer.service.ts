@@ -52,12 +52,17 @@ export const createCustomer = async (data: {
   address?: string;
   credit_limit?: number | null;
   notes?: string;
+  is_vat_customer?: boolean;
+  vat_reg_no?: string;
 }): Promise<Customer> => {
   if (!data.name?.trim()) throw createError('Customer name is required', 400);
+  if (data.is_vat_customer && !data.vat_reg_no?.trim()) {
+    throw createError('VAT registration number is required for a VAT-registered customer', 400);
+  }
 
   const result = await query(
-    `INSERT INTO customers (name, phone, email, address, credit_limit, notes)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    `INSERT INTO customers (name, phone, email, address, credit_limit, notes, is_vat_customer, vat_reg_no)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [
       data.name.trim(),
       data.phone || null,
@@ -65,6 +70,8 @@ export const createCustomer = async (data: {
       data.address || null,
       data.credit_limit === undefined || data.credit_limit === null ? null : data.credit_limit,
       data.notes || null,
+      data.is_vat_customer === true,
+      data.is_vat_customer ? (data.vat_reg_no || null) : null,
     ]
   );
   return result.rows[0];
@@ -80,15 +87,22 @@ export const updateCustomer = async (
     credit_limit: number | null;
     notes: string;
     is_active: boolean;
+    is_vat_customer: boolean;
+    vat_reg_no: string;
   }>
 ): Promise<Customer> => {
   const existing = await getCustomerById(id);
+  const isVatCustomer = data.is_vat_customer === undefined ? existing.is_vat_customer : data.is_vat_customer;
+  if (isVatCustomer && !(data.vat_reg_no ?? existing.vat_reg_no)?.trim()) {
+    throw createError('VAT registration number is required for a VAT-registered customer', 400);
+  }
 
   const result = await query(
     `UPDATE customers SET
        name = $1, phone = $2, email = $3, address = $4,
-       credit_limit = $5, notes = $6, is_active = $7, updated_at = NOW()
-     WHERE id = $8 RETURNING *`,
+       credit_limit = $5, notes = $6, is_active = $7,
+       is_vat_customer = $8, vat_reg_no = $9, updated_at = NOW()
+     WHERE id = $10 RETURNING *`,
     [
       data.name?.trim() || existing.name,
       data.phone ?? existing.phone,
@@ -97,6 +111,8 @@ export const updateCustomer = async (
       data.credit_limit === undefined ? existing.credit_limit : data.credit_limit,
       data.notes ?? existing.notes,
       data.is_active === undefined ? existing.is_active : data.is_active,
+      isVatCustomer,
+      isVatCustomer ? (data.vat_reg_no ?? existing.vat_reg_no) : null,
       id,
     ]
   );

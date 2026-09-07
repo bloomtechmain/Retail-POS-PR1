@@ -7,10 +7,11 @@ import { Layout } from '../layout/Layout';
 interface Props {
   roles?: string[];
   feature?: FeatureKey;
+  requiresRestaurantMode?: boolean;
   noLayout?: boolean;
 }
 
-export function ProtectedRoute({ roles, feature, noLayout }: Props) {
+export function ProtectedRoute({ roles, feature, requiresRestaurantMode, noLayout }: Props) {
   const { isAuthenticated, user } = useAuthStore();
   const { settings, hasFeature } = useSettingsStore();
   const location = useLocation();
@@ -24,6 +25,13 @@ export function ProtectedRoute({ roles, feature, noLayout }: Props) {
   // Business-wide plan gate — separate from the per-user role check above.
   // Skipped during first-run setup itself (nothing has a plan chosen yet).
   if (feature && settings && !hasFeature(feature) && location.pathname !== '/setup') {
+    return <Navigate to="/pos" replace />;
+  }
+
+  // The till's operating mode (Settings → Operating Mode) is a separate gate
+  // from plan eligibility above — a business can be on an eligible plan and
+  // still have Restaurant Mode switched off.
+  if (requiresRestaurantMode && settings && !settings.restaurant_mode_enabled) {
     return <Navigate to="/pos" replace />;
   }
 

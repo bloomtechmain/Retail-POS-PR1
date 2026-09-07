@@ -7,7 +7,7 @@ const { fork, spawn } = require('child_process');
 const http = require('http');
 
 const { execSync } = require('child_process');
-const { checkLicense, activateLicense } = require('./license');
+const { checkLicense, activateLicense, getMachineFingerprint } = require('./license');
 
 const BACKEND_PORT = 5000;
 const APP_VERSION = app.getVersion();
@@ -130,6 +130,140 @@ ipcMain.on('activation-complete', (_event, presetCredentials) => {
   });
 });
 
+// ─── Multi-terminal / LAN mode ───────────────────────────────────────────────
+// Absent (or any value other than 'terminal') means "standalone" — the
+// exact single-machine flow this app has always had, completely unchanged.
+// A machine only ever becomes a Terminal by explicitly connecting to a
+// Server from the activation screen (see terminal:connect below); nothing
+// here is ever shown to, or changes behavior for, a normal single-till
+// customer. There is no separate "Server mode" file/flag — any standalone
+// install is already everything a Server needs (Express already listens on
+// all interfaces; see apps/pos/backend/src/app.ts), so becoming a Server is
+// just a Terminal successfully pairing to it, not a local setting.
+function getRoleConfigPath() {
+  return path.join(app.getPath('userData'), 'role-config.json');
+}
+
+function readRoleConfig() {
+  try {
+    const raw = fs.readFileSync(getRoleConfigPath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.role === 'terminal' && parsed.serverHost) {
+      return { role: 'terminal', serverHost: parsed.serverHost, serverPort: parsed.serverPort || BACKEND_PORT };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeRoleConfig(config) {
+  fs.mkdirSync(app.getPath('userData'), { recursive: true });
+  fs.writeFileSync(getRoleConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+}
+
+function clearRoleConfig() {
+  try { fs.unlinkSync(getRoleConfigPath()); } catch {}
+}
+
+function fetchJson(url, options, timeoutMs = 4000) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(url, options || {}, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, data: body ? JSON.parse(body) : {} });
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error('Connection timed out')); });
+    if (options && options.body) req.write(options.body);
+    req.end();
+  });
+}
+
+ipcMain.handle('terminal:test-connection', async (_event, { host, port }) => {
+  try {
+    const res = await fetchJson(`http://${host}:${port || BACKEND_PORT}/health`, { method: 'GET' });
+    return { success: res.status === 200 };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Registers this machine with the Server (counts against its max_terminals
+// seat cap — see terminal.service.ts), then commits to Terminal role and
+// relaunches into it. Registration failure (wrong plan, cap reached,
+// unreachable) leaves the machine untouched — still standalone, still on
+// the activation screen, nothing partially applied.
+ipcMain.handle('terminal:connect', async (_event, { host, port }) => {
+  const serverPort = port || BACKEND_PORT;
+  try {
+    const res = await fetchJson(
+      `http://${host}:${serverPort}/api/terminal/register`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: getMachineFingerprint(), name: require('os').hostname() }),
+      }
+    );
+    if (res.status !== 200) {
+      return { success: false, error: (res.data && res.data.message) || 'Could not pair with that Server' };
+    }
+  } catch (err) {
+    return { success: false, error: `Could not reach ${host}:${serverPort} — ${err.message}` };
+  }
+
+  writeRoleConfig({ role: 'terminal', serverHost: host, serverPort });
+  // Relaunch into Terminal role — deliberately after a short delay so this
+  // handler's success response actually reaches the renderer first (an
+  // immediate app.exit() here would race the IPC reply).
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 300);
+  return { success: true };
+});
+
+// Reverts a Terminal machine back to standalone — deletes the pairing and
+// relaunches into the normal activation flow. Does NOT deregister from the
+// Server's side (no staff session exists to authenticate that call from
+// here); an admin removes stale terminals from the Server's own Settings
+// page (see terminal.routes.ts's DELETE /terminals/:id).
+ipcMain.handle('terminal:get-role', () => readRoleConfig());
+
+// Best-effort convenience for the Settings screen ("give this address to a
+// Terminal") — not authoritative, just the first non-internal IPv4 address
+// found, same discovery approach license.js's fingerprint already uses.
+// If a machine has multiple network adapters the admin may need to confirm
+// which one is actually on the shop's LAN.
+ipcMain.handle('terminal:get-server-info', () => {
+  const nets = require('os').networkInterfaces();
+  let lanIp = null;
+  outer: for (const name of Object.keys(nets)) {
+    for (const iface of nets[name] || []) {
+      if (!iface.internal && iface.family === 'IPv4') {
+        lanIp = iface.address;
+        break outer;
+      }
+    }
+  }
+  return { lanIp, port: BACKEND_PORT };
+});
+
+ipcMain.handle('terminal:disconnect', () => {
+  clearRoleConfig();
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 300);
+  return { success: true };
+});
+
 // ─── Printer setup (offline printing, in-process — no separate agent app) ───
 // Same job the standalone online Print Agent does (apps/print-agent/main.js),
 // done in-process here since the offline POS is already an Electron app.
@@ -137,13 +271,20 @@ function getPrinterConfigPath() {
   return path.join(app.getPath('userData'), 'printer-config.json');
 }
 
+// `printers` maps a kitchen-station id (string) to a printer name, for KOT
+// routing — separate from `defaultPrinter` (the receipt printer). Old
+// installs' config files predate this key entirely; reading one back
+// always backfills `printers: {}` so they never crash on the new shape.
 function readPrinterConfig() {
   try {
     const raw = fs.readFileSync(getPrinterConfigPath(), 'utf8');
     const parsed = JSON.parse(raw);
-    return { defaultPrinter: parsed.defaultPrinter || null };
+    return {
+      defaultPrinter: parsed.defaultPrinter || null,
+      printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
+    };
   } catch {
-    return { defaultPrinter: null };
+    return { defaultPrinter: null, printers: {} };
   }
 }
 
@@ -226,14 +367,23 @@ function printHtml(html, deviceName) {
 ipcMain.handle('printer:list', () => listPrinters());
 ipcMain.handle('printer:get-config', () => readPrinterConfig());
 ipcMain.handle('printer:save-config', (_event, config) => {
-  const next = { defaultPrinter: (config && config.defaultPrinter) || null };
+  const next = {
+    defaultPrinter: (config && config.defaultPrinter) || null,
+    printers: config && config.printers && typeof config.printers === 'object' ? config.printers : {},
+  };
   writePrinterConfig(next);
   return next;
 });
-ipcMain.handle('printer:print', async (_event, html) => {
+// `target` (a kitchen-station id) is optional — omitted, this resolves
+// exactly like before (the one receipt printer). Passed, it looks up that
+// station's printer, falling back to the default if the station has none
+// configured yet, so KOT printing degrades gracefully instead of failing
+// outright on a freshly-added station.
+ipcMain.handle('printer:print', async (_event, html, target) => {
   try {
     const config = readPrinterConfig();
-    await printHtml(html, config.defaultPrinter);
+    const deviceName = target ? (config.printers[target] || config.defaultPrinter) : config.defaultPrinter;
+    await printHtml(html, deviceName);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -242,6 +392,17 @@ ipcMain.handle('printer:print', async (_event, html) => {
 
 // ─── App Ready ────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // Terminal role short-circuits everything else — no local Postgres, no
+  // local backend, no license check on this machine at all (see the big
+  // comment above readRoleConfig for why that's the intended design, not
+  // an oversight). Every other machine (the overwhelming majority of
+  // installs) takes the exact same path it always has.
+  const role = readRoleConfig();
+  if (role) {
+    startTerminalMode(role);
+    return;
+  }
+
   // Check license first
   const payload = checkLicense(app.getPath('userData'));
   if (!payload) {
@@ -372,6 +533,89 @@ async function startApp() {
       app.quit();
     }
   }
+}
+
+// ─── Terminal Startup Flow ───────────────────────────────────────────────────
+// No Postgres, no backend, no license check on this machine at all — a
+// Terminal is a thin client pointed at a Server's already-running web app.
+async function waitForServer(healthUrl, maxRetries, intervalMs) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const res = await fetchJson(healthUrl, { method: 'GET' }, 2000);
+      if (res.status === 200) return true;
+    } catch {}
+    await delay(intervalMs);
+  }
+  return false;
+}
+
+async function startTerminalMode(role) {
+  showSplash();
+  updateSplash('Connecting to Server…', 30);
+
+  const targetUrl = `http://${role.serverHost}:${role.serverPort}`;
+  const reachable = await waitForServer(`${targetUrl}/health`, 15, 1000);
+
+  if (!reachable) {
+    closeSplash();
+    const choice = dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'BloomPOS Terminal — Cannot Reach Server',
+      message: `Could not connect to the Server at ${role.serverHost}:${role.serverPort}.`,
+      detail: 'Make sure the Server till is running and this device is on the same network.\n\nA Terminal cannot take sales while disconnected from its Server — there is no local database on this device.',
+      buttons: ['Retry', 'Disconnect (use this device standalone)', 'Quit'],
+      defaultId: 0,
+      cancelId: 2,
+    });
+    if (choice === 0) {
+      await startTerminalMode(role);
+    } else if (choice === 1) {
+      clearRoleConfig();
+      app.relaunch();
+      app.exit(0);
+    } else {
+      app.quit();
+    }
+    return;
+  }
+
+  updateSplash('Ready!', 100);
+  await delay(300);
+  createMainWindow(targetUrl);
+  closeSplash();
+
+  // Hard-dead by design if the Server goes away mid-session (e.g. it's
+  // rebooted or the LAN drops) — a Terminal has no local data to fall back
+  // to, so a clear "reconnecting" screen is more honest than a blank/broken
+  // window. Only guards page-level navigation failures (a reload, or the
+  // initial load racing the Server coming up); an already-loaded page whose
+  // individual API calls start failing surfaces through the app's normal
+  // error toasts instead, not this overlay.
+  mainWindow.webContents.on('did-fail-load', (_event, _code, _description, failedUrl) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    // Only the top-level navigation to the Server matters here — ignore
+    // failed sub-resource loads (a missing favicon, etc.) so this doesn't
+    // fire on every minor hiccup.
+    if (!failedUrl || !failedUrl.startsWith(targetUrl)) return;
+    mainWindow.loadURL(
+      'data:text/html;charset=utf-8,' + encodeURIComponent(`
+        <html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+          background:#111827;color:#e5e5e5;font-family:'Segoe UI',system-ui,sans-serif;">
+          <div style="text-align:center;">
+            <h2>Reconnecting to Server…</h2>
+            <p style="color:#888;">${role.serverHost}:${role.serverPort}</p>
+            <button id="retryBtn" style="margin-top:16px;padding:10px 20px;
+              background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;">Retry Now</button>
+          </div>
+          <script>
+            const go = () => { window.location.href = ${JSON.stringify(targetUrl)}; };
+            document.getElementById('retryBtn').addEventListener('click', go);
+            setTimeout(go, 5000);
+          </script>
+        </body></html>
+      `)
+    );
+  });
 }
 
 // ─── Embedded PostgreSQL ─────────────────────────────────────────────────────
@@ -695,7 +939,7 @@ function waitForBackend(maxRetries = 30, intervalMs = 500) {
 }
 
 // ─── Main Window ─────────────────────────────────────────────────────────────
-function createMainWindow() {
+function createMainWindow(targetUrl) {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -707,13 +951,16 @@ function createMainWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       devTools: !app.isPackaged,
+      // A Terminal keeps its own preload too — it still needs local IPC
+      // printing for its own physically-attached receipt printer even
+      // though the whole rest of the app is loaded from the Server.
       preload: path.join(__dirname, 'preload-main.js'),
     },
     titleBarStyle: 'default',
     title: 'BloomPOS',
   });
 
-  mainWindow.loadURL(`http://localhost:${BACKEND_PORT}`);
+  mainWindow.loadURL(targetUrl || `http://localhost:${BACKEND_PORT}`);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -834,6 +1081,60 @@ async function runMigrations() {
           CONSTRAINT vat_invoice_counter_singleton CHECK (id = 1)
         )`,
         `INSERT INTO vat_invoice_counter (id, next_number) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`,
+        // Coupons (distinct from promotions — code-entry, single/limited-use)
+        `CREATE TABLE IF NOT EXISTS coupons (
+          id SERIAL PRIMARY KEY,
+          code VARCHAR(50) UNIQUE NOT NULL,
+          type VARCHAR(20) NOT NULL,
+          discount_value DECIMAL(10,4) NOT NULL,
+          min_purchase_amount DECIMAL(12,2),
+          max_uses INTEGER,
+          uses_count INTEGER NOT NULL DEFAULT 0,
+          max_uses_per_customer INTEGER,
+          start_date DATE,
+          end_date DATE,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_by INTEGER REFERENCES users(id),
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)`,
+        `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id)`,
+        `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_discount DECIMAL(12,2) DEFAULT 0`,
+        // Restaurant Mode: kitchen stations, tables, held-order lifecycle
+        `CREATE TABLE IF NOT EXISTS kitchen_stations (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW()
+        )`,
+        `ALTER TABLE products ADD COLUMN IF NOT EXISTS station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL`,
+        `CREATE INDEX IF NOT EXISTS idx_products_station ON products(station_id) WHERE station_id IS NOT NULL`,
+        `CREATE TABLE IF NOT EXISTS tables (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(50) NOT NULL,
+          capacity INTEGER,
+          status VARCHAR(20) NOT NULL DEFAULT 'available',
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW(),
+          deleted_at TIMESTAMP
+        )`,
+        `ALTER TABLE sales ADD COLUMN IF NOT EXISTS table_id INTEGER REFERENCES tables(id)`,
+        `ALTER TABLE sales ADD COLUMN IF NOT EXISTS order_type VARCHAR(20) NOT NULL DEFAULT 'retail'`,
+        `ALTER TABLE sales ADD COLUMN IF NOT EXISTS kot_printed_at TIMESTAMP`,
+        `CREATE INDEX IF NOT EXISTS idx_sales_table ON sales(table_id) WHERE table_id IS NOT NULL`,
+        `ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS kot_sent_at TIMESTAMP`,
+        // Multi-terminal/LAN mode
+        `CREATE TABLE IF NOT EXISTS terminals (
+          id SERIAL PRIMARY KEY,
+          fingerprint VARCHAR(64) UNIQUE NOT NULL,
+          name VARCHAR(255),
+          last_seen_at TIMESTAMP DEFAULT NOW(),
+          created_at TIMESTAMP DEFAULT NOW()
+        )`,
+        `ALTER TABLE settings ADD COLUMN IF NOT EXISTS restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+        `ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE`,
+        `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_reg_no VARCHAR(100)`,
       ];
       for (const sql of alterations) {
         await client.query(sql);

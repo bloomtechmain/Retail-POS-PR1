@@ -33,6 +33,12 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
   )`,
+  `CREATE TABLE IF NOT EXISTS kitchen_stations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+  )`,
   `CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -45,6 +51,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     avg_cost DECIMAL(12,4) NOT NULL DEFAULT 0,
     category_id INTEGER REFERENCES categories(id),
     brand_id INTEGER REFERENCES brands(id),
+    station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL,
     unit_type VARCHAR(50) DEFAULT 'piece',
     current_stock DECIMAL(12,3) DEFAULT 0,
     low_stock_level DECIMAL(12,3) DEFAULT 5,
@@ -193,6 +200,39 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     updated_at TIMESTAMP DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions(is_active, start_date, end_date)`,
+  `CREATE TABLE IF NOT EXISTS coupons (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    type VARCHAR(20) NOT NULL,
+    discount_value DECIMAL(10,4) NOT NULL,
+    min_purchase_amount DECIMAL(12,2),
+    max_uses INTEGER,
+    uses_count INTEGER NOT NULL DEFAULT 0,
+    max_uses_per_customer INTEGER,
+    start_date DATE,
+    end_date DATE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INTEGER REFERENCES public.users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)`,
+  `CREATE TABLE IF NOT EXISTS terminals (
+    id SERIAL PRIMARY KEY,
+    fingerprint VARCHAR(64) UNIQUE NOT NULL,
+    name VARCHAR(255),
+    last_seen_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMP DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS tables (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    capacity INTEGER,
+    status VARCHAR(20) NOT NULL DEFAULT 'available',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    deleted_at TIMESTAMP
+  )`,
   `CREATE TABLE IF NOT EXISTS customers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -203,6 +243,11 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     current_balance DECIMAL(12,2) NOT NULL DEFAULT 0,
     notes TEXT,
     is_active BOOLEAN DEFAULT TRUE,
+    -- A VAT-registered customer's details, captured once here and reused to
+    -- auto-fill every VAT invoice generated for them afterward (see
+    -- generateVatInvoice in vatInvoice.service.ts) instead of retyping.
+    is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE,
+    vat_reg_no VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     deleted_at TIMESTAMP
@@ -243,6 +288,11 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     notes TEXT,
     customer_name VARCHAR(255),
     customer_id INTEGER REFERENCES customers(id),
+    coupon_id INTEGER REFERENCES coupons(id),
+    coupon_discount DECIMAL(12,2) DEFAULT 0,
+    table_id INTEGER REFERENCES tables(id),
+    order_type VARCHAR(20) NOT NULL DEFAULT 'retail',
+    kot_printed_at TIMESTAMP,
     is_vat_invoice BOOLEAN NOT NULL DEFAULT FALSE,
     vat_invoice_number VARCHAR(50),
     buyer_vat_reg_no VARCHAR(100),
@@ -268,6 +318,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     tax_amount DECIMAL(12,2) DEFAULT 0,
     subtotal DECIMAL(12,2) NOT NULL,
     promotion_id INTEGER REFERENCES promotions(id),
+    kot_sent_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
   )`,
   `CREATE TABLE IF NOT EXISTS sale_item_taxes (
@@ -285,6 +336,8 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status)`,
   `CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_table ON sales(table_id) WHERE table_id IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_products_station ON products(station_id) WHERE station_id IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id)`,
   `CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id)`,
   `CREATE TABLE IF NOT EXISTS sale_returns (
@@ -344,6 +397,13 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     -- planIncludes in data/plans.ts). NULL = use the plan's default features.
     custom_features JSONB,
     setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Mutually exclusive with plain retail checkout — see POS.tsx: when
+    -- true the till only ever runs dine-in/takeaway orders through the
+    -- held-order flow, never the plain createSale path, even though both
+    -- code paths still exist side by side. A separate switch from the
+    -- restaurant_mode FeatureKey on purpose — an eligible-tier shop that's
+    -- pure retail can leave this off.
+    restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT settings_singleton CHECK (id = 1)

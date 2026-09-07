@@ -42,13 +42,20 @@ function getConfigPath() {
   return path.join(app.getPath('userData'), 'config.json');
 }
 
+// `printers` maps a kitchen-station id (string) to a printer name, for KOT
+// routing — separate from `defaultPrinter` (the receipt printer). Old
+// config files predate this key; reading one back always backfills
+// `printers: {}` so they never crash on the new shape.
 function readConfig() {
   try {
     const raw = fs.readFileSync(getConfigPath(), 'utf8');
     const parsed = JSON.parse(raw);
-    return { defaultPrinter: parsed.defaultPrinter || null };
+    return {
+      defaultPrinter: parsed.defaultPrinter || null,
+      printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
+    };
   } catch {
-    return { defaultPrinter: null };
+    return { defaultPrinter: null, printers: {} };
   }
 }
 
@@ -163,21 +170,28 @@ function startServer() {
 
   expressApp.post('/config', (req, res) => {
     const defaultPrinter = (req.body && req.body.defaultPrinter) || null;
-    const config = { defaultPrinter };
+    const printers = req.body && req.body.printers && typeof req.body.printers === 'object' ? req.body.printers : {};
+    const config = { defaultPrinter, printers };
     writeConfig(config);
     broadcastConfig(config);
     res.json(config);
   });
 
+  // `target` (a kitchen-station id) is optional — omitted, this resolves
+  // exactly like before (the one receipt printer). Passed, it looks up
+  // that station's printer, falling back to the default if the station
+  // has none configured yet.
   expressApp.post('/print', async (req, res) => {
     const html = req.body && req.body.html;
+    const target = req.body && req.body.target;
     if (!html || typeof html !== 'string') {
       res.status(400).json({ success: false, error: 'Missing html' });
       return;
     }
     try {
       const config = readConfig();
-      await printHtml(html, config.defaultPrinter);
+      const deviceName = target ? (config.printers[target] || config.defaultPrinter) : config.defaultPrinter;
+      await printHtml(html, deviceName);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -237,7 +251,10 @@ function createTray() {
 ipcMain.handle('get-printers', () => listPrinters());
 ipcMain.handle('get-config', () => readConfig());
 ipcMain.handle('save-config', (_event, config) => {
-  const next = { defaultPrinter: (config && config.defaultPrinter) || null };
+  // The tray settings window only ever edits defaultPrinter — preserve
+  // whatever station->printer map is already on disk rather than wiping it.
+  const existing = readConfig();
+  const next = { defaultPrinter: (config && config.defaultPrinter) || null, printers: existing.printers };
   writeConfig(next);
   return next;
 });

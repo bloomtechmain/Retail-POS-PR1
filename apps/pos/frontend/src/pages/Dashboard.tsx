@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageContainer } from '../components/layout/Layout';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { DashboardStats } from '../types';
@@ -7,6 +8,10 @@ import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 
 const fmtNum = (n: number) => Number(n).toLocaleString('en-US');
+
+// Matches the app's existing stat-card palette (blue/green/purple/amber/red)
+// so chart colors read as "the same app," not a bolted-on library default.
+const CHART_COLORS = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'];
 
 function StatCard({ label, value, sub, color = 'blue' }: {
   label: string; value: string; sub?: string; color?: string;
@@ -113,28 +118,53 @@ export default function Dashboard() {
             {stats.revenue_trend.length === 0 ? (
               <p className="text-sm text-surface-400 text-center py-4">No data available</p>
             ) : (
-              <div className="space-y-2">
-                {stats.revenue_trend.slice(-7).map((d, i) => {
-                  const max = Math.max(...stats.revenue_trend.map((x) => x.revenue));
-                  const width = max > 0 ? (d.revenue / max) * 100 : 0;
-                  return (
-                    <div key={i} className="flex items-center gap-3">
-                      <span className="text-xs text-surface-500 w-20 shrink-0">
-                        {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
-                      <div className="flex-1 bg-surface-100 rounded-full h-2">
-                        <div
-                          className="bg-primary-500 h-2 rounded-full transition-all"
-                          style={{ width: `${width}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-mono text-surface-700 w-20 text-right shrink-0">
-                        {fmt(d.revenue)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={stats.revenue_trend}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    tick={{ fontSize: 11, fill: '#6b7280' }}
+                    axisLine={false} tickLine={false}
+                  />
+                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={60} />
+                  <Tooltip
+                    formatter={(value: number) => fmt(value)}
+                    labelFormatter={(d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  />
+                  <Bar dataKey="revenue" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Payment Method Mix */}
+        <div className="card">
+          <div className="px-5 py-4 border-b border-surface-200">
+            <h3 className="font-semibold text-surface-900">{t.dashboard_payment_mix}</h3>
+          </div>
+          <div className="p-4">
+            {stats.payment_method_mix.length === 0 ? (
+              <p className="text-sm text-surface-400 text-center py-4">No data available</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie
+                    data={stats.payment_method_mix}
+                    dataKey="revenue"
+                    nameKey="payment_method"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={2}
+                  >
+                    {stats.payment_method_mix.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => fmt(value)} />
+                </PieChart>
+              </ResponsiveContainer>
             )}
           </div>
         </div>

@@ -85,6 +85,13 @@ CREATE TABLE IF NOT EXISTS tax_rates (
 -- PRODUCTS
 -- ============================================================
 
+CREATE TABLE IF NOT EXISTS kitchen_stations (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -97,6 +104,7 @@ CREATE TABLE IF NOT EXISTS products (
   avg_cost DECIMAL(12,4) NOT NULL DEFAULT 0,
   category_id INTEGER REFERENCES categories(id),
   brand_id INTEGER REFERENCES brands(id),
+  station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL,
   unit_type VARCHAR(50) DEFAULT 'piece',
   current_stock DECIMAL(12,3) DEFAULT 0,
   low_stock_level DECIMAL(12,3) DEFAULT 5,
@@ -267,6 +275,47 @@ CREATE TABLE IF NOT EXISTS promotions (
 
 CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions(is_active, start_date, end_date);
 
+CREATE TABLE IF NOT EXISTS coupons (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(50) UNIQUE NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  -- Types: 'percent', 'fixed'
+  discount_value DECIMAL(10,4) NOT NULL,
+  min_purchase_amount DECIMAL(12,2),
+  max_uses INTEGER,
+  uses_count INTEGER NOT NULL DEFAULT 0,
+  max_uses_per_customer INTEGER,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code);
+
+-- Multi-terminal/LAN mode: machines paired to this one as thin-client
+-- "Terminal" tills. Offline (Electron) app only — see terminal.service.ts.
+CREATE TABLE IF NOT EXISTS terminals (
+  id SERIAL PRIMARY KEY,
+  fingerprint VARCHAR(64) UNIQUE NOT NULL,
+  name VARCHAR(255),
+  last_seen_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tables (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(50) NOT NULL,
+  capacity INTEGER,
+  status VARCHAR(20) NOT NULL DEFAULT 'available',
+  -- Status: 'available', 'occupied', 'reserved'
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+
 -- ============================================================
 -- CUSTOMERS (CREDIT ACCOUNTS)
 -- ============================================================
@@ -283,6 +332,8 @@ CREATE TABLE IF NOT EXISTS customers (
   -- Amount currently owed by the customer (increases on credit sales, decreases on payments)
   notes TEXT,
   is_active BOOLEAN DEFAULT TRUE,
+  is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE,
+  vat_reg_no VARCHAR(100),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   deleted_at TIMESTAMP
@@ -334,6 +385,12 @@ CREATE TABLE IF NOT EXISTS sales (
   notes TEXT,
   customer_name VARCHAR(255),
   customer_id INTEGER REFERENCES customers(id),
+  coupon_id INTEGER REFERENCES coupons(id),
+  coupon_discount DECIMAL(12,2) DEFAULT 0,
+  table_id INTEGER REFERENCES tables(id),
+  order_type VARCHAR(20) NOT NULL DEFAULT 'retail',
+  -- Types: 'retail', 'dine_in', 'takeaway', 'delivery'
+  kot_printed_at TIMESTAMP,
   is_vat_invoice BOOLEAN NOT NULL DEFAULT FALSE,
   vat_invoice_number VARCHAR(50),
   buyer_vat_reg_no VARCHAR(100),
@@ -344,6 +401,8 @@ CREATE TABLE IF NOT EXISTS sales (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_sales_table ON sales(table_id) WHERE table_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS sale_items (
   id SERIAL PRIMARY KEY,
@@ -360,6 +419,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   tax_amount DECIMAL(12,2) DEFAULT 0,
   subtotal DECIMAL(12,2) NOT NULL,
   promotion_id INTEGER REFERENCES promotions(id),
+  kot_sent_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -464,6 +524,8 @@ CREATE TABLE IF NOT EXISTS settings (
   -- plan's default features.
   custom_features JSONB,
   setup_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Mutually exclusive with plain retail checkout — see POS.tsx.
+  restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   CONSTRAINT settings_singleton CHECK (id = 1)

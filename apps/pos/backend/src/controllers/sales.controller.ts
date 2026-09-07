@@ -21,6 +21,8 @@ export const list = async (req: AuthRequest, res: Response, next: NextFunction) 
       shift_id: req.query.shift_id ? parseInt(req.query.shift_id as string) : undefined,
       status: req.query.status as string,
       sale_number: req.query.sale_number as string,
+      table_id: req.query.table_id ? parseInt(req.query.table_id as string) : undefined,
+      order_type: req.query.order_type as string,
     });
     res.json({ success: true, ...result });
   } catch (err) { next(err); }
@@ -44,5 +46,44 @@ export const returnSale = async (req: AuthRequest, res: Response, next: NextFunc
   try {
     const result = await salesService.returnSaleItems(parseInt(req.params.id), req.body, req.user!.id);
     res.status(201).json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
+// ─── Restaurant Mode: held-order lifecycle ─────────────────────────────────
+
+export const createHeld = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const canOverridePrice = req.user!.permissions?.price_override === true;
+    const sale = await salesService.createHeldSale(req.body, req.user!.id, canOverridePrice);
+    res.status(201).json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const addItems = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const canOverridePrice = req.user!.permissions?.price_override === true;
+    const sale = await salesService.addItemsToSale(parseInt(req.params.id), req.body.cart_items, req.user!.id, canOverridePrice);
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const sendToKitchen = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await salesService.sendToKitchen(parseInt(req.params.id));
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
+export const completeHeld = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await salesService.completeHeldSale(parseInt(req.params.id), req.body);
+    res.json({ success: true, data: sale });
+  } catch (err) { next(err); }
+};
+
+export const cancelHeld = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await salesService.cancelHeldSale(parseInt(req.params.id), req.body.reason, req.user!.id);
+    res.json({ success: true, data: sale });
   } catch (err) { next(err); }
 };

@@ -2,9 +2,16 @@ import { Response, NextFunction } from 'express';
 import * as vatInvoiceService from '../services/vatInvoice.service';
 import { AuthRequest } from '../middleware/auth';
 
-export const create = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const pending = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const sale = await vatInvoiceService.createVatInvoice(req.body, req.user!.id);
+    const data = await vatInvoiceService.getVatPendingSales();
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+export const generate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const sale = await vatInvoiceService.generateVatInvoice(parseInt(req.params.saleId), req.body);
     res.status(201).json({ success: true, data: sale });
   } catch (err) { next(err); }
 };

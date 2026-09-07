@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { BusinessProfileForm, BusinessProfileValue } from '../components/settings/BusinessProfileForm';
 import { TaxRatesManager } from '../components/settings/TaxRatesManager';
+import { KitchenStationsCard } from '../components/settings/KitchenStationsCard';
+import { MultiTerminalCard } from '../components/settings/MultiTerminalCard';
 import { PrintAgentCard } from '../components/settings/PrintAgentCard';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
@@ -18,7 +20,6 @@ const EMPTY: BusinessProfileValue = {
   email: '',
   currency_code: 'USD',
   currency_symbol: '$',
-  vat_registration_number: '',
 };
 
 export default function SettingsPage() {
@@ -29,6 +30,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [switchingEnv, setSwitchingEnv] = useState(false);
+  const [switchingMode, setSwitchingMode] = useState(false);
+  const [vatRegNumber, setVatRegNumber] = useState('');
+  const [savingVat, setSavingVat] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState(user?.email || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -52,8 +56,8 @@ export default function SettingsPage() {
         email: settings.email || '',
         currency_code: settings.currency_code || 'USD',
         currency_symbol: settings.currency_symbol || '$',
-        vat_registration_number: settings.vat_registration_number || '',
       });
+      setVatRegNumber(settings.vat_registration_number || '');
       setLoading(false);
     }
   }, [settings]);
@@ -123,6 +127,41 @@ export default function SettingsPage() {
     }
   };
 
+  const toggleRestaurantMode = async () => {
+    const goingToRestaurant = !settings?.restaurant_mode_enabled;
+    if (!confirm(
+      goingToRestaurant
+        ? 'Switch this till to Restaurant Mode? Regular retail checkout will be replaced by dine-in/takeaway ordering until you switch back.'
+        : 'Switch back to regular POS Mode? Dine-in/takeaway ordering will no longer be available on this till.'
+    )) return;
+
+    setSwitchingMode(true);
+    try {
+      const r = await api.put('/settings', { restaurant_mode_enabled: goingToRestaurant });
+      setSettings(r.data.data);
+      toast.success(goingToRestaurant ? 'Switched to Restaurant Mode' : 'Switched to POS Mode');
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ message: string }>;
+      toast.error(axiosErr.response?.data?.message || 'Failed to switch mode');
+    } finally {
+      setSwitchingMode(false);
+    }
+  };
+
+  const saveVatSettings = async () => {
+    setSavingVat(true);
+    try {
+      const r = await api.put('/settings', { vat_registration_number: vatRegNumber });
+      setSettings(r.data.data);
+      toast.success('VAT settings saved');
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ message: string }>;
+      toast.error(axiosErr.response?.data?.message || 'Failed to save VAT settings');
+    } finally {
+      setSavingVat(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -165,6 +204,28 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {hasFeature('restaurant_mode') && (
+        <div className={`card p-6 mb-6 ${settings?.restaurant_mode_enabled ? 'ring-2 ring-primary-300' : ''}`}>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-semibold text-surface-900">Operating Mode</h3>
+              <p className="text-surface-500 text-sm mt-0.5">
+                {settings?.restaurant_mode_enabled
+                  ? 'This till is in Restaurant Mode — every sale is a dine-in or takeaway order. Regular retail checkout is off.'
+                  : 'This till is in regular POS Mode — plain retail checkout. Switch to Restaurant Mode for tables, dine-in/takeaway, and kitchen tickets.'}
+              </p>
+            </div>
+            <button
+              className={settings?.restaurant_mode_enabled ? 'btn-secondary' : 'btn-primary'}
+              disabled={switchingMode}
+              onClick={toggleRestaurantMode}
+            >
+              {switchingMode ? 'Switching...' : settings?.restaurant_mode_enabled ? 'Switch to POS Mode' : 'Switch to Restaurant Mode'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="card p-6 space-y-6">
         <BusinessProfileForm value={profile} onChange={setProfile} />
@@ -240,9 +301,44 @@ export default function SettingsPage() {
 
       <PrintAgentCard />
 
-      {hasFeature('vat_invoice') && (
+      {hasFeature('kot_printing') && settings?.restaurant_mode_enabled && (
         <div className="card p-6 mt-6">
-          <TaxRatesManager />
+          <KitchenStationsCard />
+        </div>
+      )}
+
+      {hasFeature('multi_terminal') && (
+        <div className="card p-6 mt-6">
+          <MultiTerminalCard />
+        </div>
+      )}
+
+      {/* Everything VAT/tax-related lives in this one place — the TIN
+          number a Tax Invoice needs, and the named tax rates (VAT, NBT,
+          etc.) available when generating one. */}
+      {hasFeature('vat_invoice') && (
+        <div className="card p-6 mt-6 space-y-6">
+          <div>
+            <h3 className="font-semibold text-surface-900">VAT &amp; Tax Settings</h3>
+            <p className="text-surface-500 text-sm mt-0.5">Your TIN and tax rates, used on every generated Tax Invoice.</p>
+          </div>
+          <div>
+            <label className="label">TIN Number <span className="font-normal text-surface-400">(Taxpayer Identification Number)</span></label>
+            <input
+              className="input font-mono max-w-xs"
+              value={vatRegNumber}
+              onChange={(e) => setVatRegNumber(e.target.value)}
+              placeholder="e.g. TN2342"
+            />
+            <div className="flex justify-end mt-2">
+              <button className="btn-primary btn-sm" disabled={savingVat} onClick={saveVatSettings}>
+                {savingVat ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+          <div className="border-t border-surface-200 pt-6">
+            <TaxRatesManager />
+          </div>
         </div>
       )}
     </PageContainer>

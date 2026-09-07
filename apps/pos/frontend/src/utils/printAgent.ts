@@ -7,11 +7,18 @@
 //     Agent (a small Electron tray app) over its local HTTP server. The
 //     agent only ever listens on the loopback interface, so this is the one
 //     place in the online POS that legitimately calls a fixed localhost port.
+interface PrinterConfig {
+  defaultPrinter: string | null;
+  // Kitchen-station id -> printer name, for KOT routing. Empty on installs
+  // that predate Restaurant Mode — always present, never undefined.
+  printers: Record<string, string>;
+}
+
 interface ElectronPrintAPI {
   getPrinters: () => Promise<string[]>;
-  getConfig: () => Promise<{ defaultPrinter: string | null }>;
-  saveConfig: (config: { defaultPrinter: string }) => Promise<{ defaultPrinter: string | null }>;
-  print: (html: string) => Promise<{ success: boolean; error?: string }>;
+  getConfig: () => Promise<PrinterConfig>;
+  saveConfig: (config: PrinterConfig) => Promise<PrinterConfig>;
+  print: (html: string, target?: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {
@@ -70,27 +77,54 @@ export async function getAgentDefaultPrinter(): Promise<string | null> {
 }
 
 export async function setAgentDefaultPrinter(defaultPrinter: string): Promise<void> {
+  const current = await getAgentPrinterConfig();
+  await saveAgentPrinterConfig({ defaultPrinter, printers: current.printers });
+}
+
+export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
+  if (isElectronPrint()) return window.electronPrintAPI!.getConfig();
+  const res = await agentFetch('/config');
+  if (!res.ok) throw new Error('Could not reach Print Agent');
+  const data = await res.json();
+  return { defaultPrinter: data.defaultPrinter || null, printers: data.printers || {} };
+}
+
+async function saveAgentPrinterConfig(config: PrinterConfig): Promise<void> {
   if (isElectronPrint()) {
-    await window.electronPrintAPI!.saveConfig({ defaultPrinter });
+    await window.electronPrintAPI!.saveConfig(config);
     return;
   }
   const res = await agentFetch('/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ defaultPrinter }),
+    body: JSON.stringify(config),
   });
-  if (!res.ok) throw new Error('Could not save default printer');
+  if (!res.ok) throw new Error('Could not save printer configuration');
 }
 
-export async function sendPrintJob(html: string): Promise<{ success: boolean; error?: string }> {
+// Assigns (or clears, with an empty printerName) the printer a given
+// kitchen station's KOT tickets print to on this device.
+export async function setStationPrinter(stationId: number, printerName: string): Promise<void> {
+  const current = await getAgentPrinterConfig();
+  const printers = { ...current.printers };
+  if (printerName) printers[String(stationId)] = printerName;
+  else delete printers[String(stationId)];
+  await saveAgentPrinterConfig({ defaultPrinter: current.defaultPrinter, printers });
+}
+
+// `target` is a kitchen-station id — omitted, prints to the one receipt
+// printer exactly as before; passed, routes to that station's configured
+// printer (falling back to the receipt printer if the station has none set).
+export async function sendPrintJob(html: string, target?: number): Promise<{ success: boolean; error?: string }> {
+  const targetKey = target != null ? String(target) : undefined;
   if (isElectronPrint()) {
-    return window.electronPrintAPI!.print(html);
+    return window.electronPrintAPI!.print(html, targetKey);
   }
   try {
     const res = await agentFetch('/print', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html }),
+      body: JSON.stringify({ html, target: targetKey }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { success: false, error: data.error || 'Print failed' };
@@ -129,5 +163,44 @@ export async function buildPrintableDocument(elementId: string): Promise<string>
 <style>${cssParts.join('\n')}</style>
 </head>
 <body>${el.outerHTML}</body>
+</html>`;
+}
+
+// KOT tickets are built from API response data (a held order's items,
+// possibly split across several stations), not a single on-screen element —
+// so unlike buildPrintableDocument this is a plain string builder, not a
+// DOM read.
+export function buildKotDocument(params: {
+  saleNumber: string;
+  stationName: string;
+  orderType: string;
+  tableName?: string;
+  items: Array<{ product_name: string; quantity: number }>;
+}): string {
+  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
+  const rows = params.items
+    .map((i) => `<div class="row"><span class="qty">${i.quantity}×</span><span class="name">${esc(i.product_name)}</span></div>`)
+    .join('');
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { font-family: monospace; font-size: 14px; width: 280px; margin: 0; padding: 8px; }
+  h1 { font-size: 16px; text-align: center; margin: 0 0 4px; }
+  .meta { text-align: center; font-size: 12px; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 6px; }
+  .row { display: flex; gap: 6px; padding: 3px 0; font-size: 15px; font-weight: bold; }
+  .qty { flex-shrink: 0; }
+</style>
+</head>
+<body>
+<h1>KOT — ${esc(params.stationName)}</h1>
+<div class="meta">
+  ${esc(params.orderType)}${params.tableName ? ` · ${esc(params.tableName)}` : ''}<br/>
+  #${esc(params.saleNumber)} · ${new Date().toLocaleTimeString()}
+</div>
+${rows}
+</body>
 </html>`;
 }

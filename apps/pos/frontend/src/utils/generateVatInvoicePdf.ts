@@ -79,7 +79,14 @@ export function generateVatInvoicePdf(sale: Sale, settings: Settings) {
   // ── Line items ───────────────────────────────────────────────────────
   const taxTotalsByName = new Map<string, { amount: number; rate: number }>();
   const rows = (sale.items || []).map((item) => {
-    const taxable = Number(item.subtotal) - Number(item.tax_amount);
+    // A generated invoice's tax breakdown comes from the named taxes
+    // assigned at generation time (item.taxes), not the line's original
+    // checkout-time tax_amount (a different, legacy single-rate field) —
+    // the two can disagree, and item.taxes is authoritative for anything
+    // generated through the current VAT invoice flow. Falls back to
+    // tax_amount only if no named taxes were ever assigned to this line.
+    const assignedTax = (item.taxes || []).reduce((s, t) => s + Number(t.tax_amount), 0);
+    const taxable = Number(item.subtotal) - (item.taxes && item.taxes.length > 0 ? assignedTax : Number(item.tax_amount));
     for (const t of item.taxes || []) {
       const existing = taxTotalsByName.get(t.tax_name);
       taxTotalsByName.set(t.tax_name, {

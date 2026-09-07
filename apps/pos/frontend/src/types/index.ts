@@ -19,6 +19,7 @@ export interface Settings {
   vat_registration_number?: string;
   plan_key: string;
   setup_completed: boolean;
+  restaurant_mode_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -27,17 +28,22 @@ export type FeatureKey =
   | 'reports'
   | 'users'
   | 'promotions'
+  | 'coupons'
   | 'customers'
   | 'fifo_costing'
   | 'multi_language'
   | 'multi_currency'
-  | 'vat_invoice';
+  | 'vat_invoice'
+  | 'restaurant_mode'
+  | 'kot_printing'
+  | 'multi_terminal';
 
 export interface Plan {
   key: string;
   name: string;
   tagline: string;
   max_users: number | null;
+  max_terminals: number | null;
   features: FeatureKey[];
 }
 
@@ -68,6 +74,8 @@ export interface Product {
   category_name?: string;
   brand_id?: number;
   brand_name?: string;
+  station_id?: number;
+  station_name?: string;
   unit_type: string;
   current_stock: number;
   low_stock_level: number;
@@ -155,6 +163,11 @@ export interface Sale {
   notes?: string;
   customer_name?: string;
   customer_id?: number;
+  coupon_id?: number;
+  coupon_discount?: number;
+  table_id?: number;
+  order_type: 'retail' | 'dine_in' | 'takeaway' | 'delivery';
+  kot_printed_at?: string;
   is_vat_invoice?: boolean;
   vat_invoice_number?: string;
   buyer_vat_reg_no?: string;
@@ -176,6 +189,8 @@ export interface Customer {
   current_balance: number;
   notes?: string;
   is_active: boolean;
+  is_vat_customer: boolean;
+  vat_reg_no?: string;
   created_at: string;
 }
 
@@ -318,6 +333,40 @@ export interface Promotion {
   priority: number;
 }
 
+export interface Terminal {
+  id: number;
+  fingerprint: string;
+  name?: string;
+  last_seen_at: string;
+}
+
+export interface KitchenStation {
+  id: number;
+  name: string;
+  is_active: boolean;
+}
+
+export interface DiningTable {
+  id: number;
+  name: string;
+  capacity?: number;
+  status: 'available' | 'occupied' | 'reserved';
+}
+
+export interface Coupon {
+  id: number;
+  code: string;
+  type: 'percent' | 'fixed';
+  discount_value: number;
+  min_purchase_amount?: number;
+  max_uses?: number;
+  uses_count: number;
+  max_uses_per_customer?: number;
+  start_date?: string;
+  end_date?: string;
+  is_active: boolean;
+}
+
 export interface DashboardStats {
   today_revenue: number;
   today_profit: number;
@@ -330,6 +379,7 @@ export interface DashboardStats {
   open_shift: Shift | null;
   top_products: Array<{ product_name: string; qty_sold: number; revenue: number }>;
   revenue_trend: Array<{ date: string; revenue: number; profit: number }>;
+  payment_method_mix: Array<{ payment_method: string; revenue: number }>;
 }
 
 export interface PaginatedResponse<T> {

@@ -17,6 +17,7 @@ import Customers from './pages/Customers';
 import Setup from './pages/Setup';
 import SettingsPage from './pages/Settings';
 import VatInvoice from './pages/VatInvoice';
+import TableGrid from './pages/TableGrid';
 
 export default function App() {
   useEffect(() => {
@@ -55,6 +56,9 @@ export default function App() {
         </Route>
         <Route element={<ProtectedRoute feature="vat_invoice" />}>
           <Route path="/vat-invoice" element={<VatInvoice />} />
+        </Route>
+        <Route element={<ProtectedRoute feature="restaurant_mode" requiresRestaurantMode />}>
+          <Route path="/tables" element={<TableGrid />} />
         </Route>
 
         {/* Protected — Admin & Manager, always-available pages (Basic tier and up) */}

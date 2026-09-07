@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
-import { Product, Promotion, Sale, SaleItem, SaleReturn, Customer } from '../types';
+import { useRestaurantStore } from '../store/restaurantStore';
+import { Product, Promotion, Sale, SaleItem, SaleReturn, Customer, CartItem, Category } from '../types';
 import api from '../services/api';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -12,7 +13,7 @@ import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { useSettingsStore } from '../store/settingsStore';
 import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit, convertFromBaseUnit } from '../utils/units';
-import { buildPrintableDocument, isElectronPrint, sendPrintJob } from '../utils/printAgent';
+import { buildPrintableDocument, buildKotDocument, isElectronPrint, sendPrintJob } from '../utils/printAgent';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -569,7 +570,7 @@ function SaleReturnModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
 }
 
 // ─── Product Search Dropdown ──────────────────────────────────────────────────
-function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
+function ProductSearch({ onScan, onPick }: { onScan: (p: Product) => void; onPick: (p: Product) => void }) {
   const t = useT();
   const [query, setQuery]       = useState('');
   const [results, setResults]   = useState<Product[]>([]);
@@ -599,9 +600,11 @@ function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
       setResults(items);
       setCursor(0);
 
-      // Auto-add exact barcode match (scanner)
+      // Auto-add exact barcode match (scanner) — instant, no popup: a scan is
+      // already an unambiguous "add exactly this one," unlike a deliberate
+      // tap/click, which opens the quantity picker instead (see onPick).
       if (items.length === 1 && (items[0].barcode === q || items[0].sku === q)) {
-        onAdd(items[0]);
+        onScan(items[0]);
         setQuery('');
         setResults([]);
         setOpen(false);
@@ -609,7 +612,7 @@ function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
         setOpen(items.length > 0);
       }
     } finally { setLoading(false); }
-  }, [onAdd]);
+  }, [onScan]);
 
   useEffect(() => {
     clearTimeout(debounce.current);
@@ -619,7 +622,7 @@ function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
   }, [query, search]);
 
   const pick = (p: Product) => {
-    onAdd(p);
+    onPick(p);
     setQuery('');
     setResults([]);
     setOpen(false);
@@ -708,13 +711,258 @@ function ProductSearch({ onAdd }: { onAdd: (p: Product) => void }) {
   );
 }
 
+// ─── Product Grid — large tappable tiles, the primary way to browse/add ──────
+function ProductGrid({ onPick }: { onPick: (p: Product) => void }) {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [cursor, setCursor] = useState(0);
+  const tileRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    api.get('/products/categories').then((r) => setCategories(r.data.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams({ limit: '300', active_only: 'true' });
+    if (categoryFilter) params.set('category_id', String(categoryFilter));
+    api.get(`/products?${params}`)
+      .then((r) => { setProducts(r.data.data); setCursor(0); })
+      .finally(() => setLoading(false));
+  }, [categoryFilter]);
+
+  // Arrow-key navigation across the tile grid + Enter to select — mirrors the
+  // number of Tailwind grid columns at each breakpoint (2/3/4/5) so Up/Down
+  // move roughly one visual row. Skipped whenever a text input/select is
+  // focused (e.g. the product search box) so normal typing is never hijacked.
+  useEffect(() => {
+    const getColumns = () => {
+      const w = window.innerWidth;
+      if (w >= 1280) return 5;
+      if (w >= 1024) return 4;
+      if (w >= 640) return 3;
+      return 2;
+    };
+    const handler = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isTyping = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+      if (isTyping || products.length === 0) return;
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) return;
+      e.preventDefault();
+      if (e.key === 'Enter') {
+        const p = products[cursor];
+        const outOfStock = p.current_stock <= 0 && !p.allow_negative_stock;
+        if (!outOfStock) onPick(p);
+        return;
+      }
+      const cols = getColumns();
+      setCursor((c) => {
+        if (e.key === 'ArrowRight') return Math.min(c + 1, products.length - 1);
+        if (e.key === 'ArrowLeft') return Math.max(c - 1, 0);
+        if (e.key === 'ArrowDown') return Math.min(c + cols, products.length - 1);
+        if (e.key === 'ArrowUp') return Math.max(c - cols, 0);
+        return c;
+      });
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [products, cursor, onPick]);
+
+  useEffect(() => {
+    tileRefs.current[cursor]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [cursor]);
+
+  return (
+    <div className="flex-1 overflow-y-auto p-3">
+      {/* Category tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-3 -mx-1 px-1">
+        <button
+          onClick={() => setCategoryFilter(null)}
+          className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            categoryFilter === null ? 'bg-primary-600 text-white' : 'bg-white border border-surface-200 text-surface-600 hover:border-primary-300'
+          }`}
+        >
+          All
+        </button>
+        {categories.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => setCategoryFilter(c.id)}
+            className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              categoryFilter === c.id ? 'text-white' : 'bg-white border border-surface-200 text-surface-600 hover:border-primary-300'
+            }`}
+            style={categoryFilter === c.id ? { backgroundColor: c.color } : undefined}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="py-12 flex justify-center"><LoadingSpinner size="lg" /></div>
+      ) : products.length === 0 ? (
+        <p className="text-center py-16 text-surface-400 text-sm">No products in this category.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {products.map((p, i) => {
+            const outOfStock = p.current_stock <= 0 && !p.allow_negative_stock;
+            const lowStock = !outOfStock && p.current_stock <= p.low_stock_level;
+            return (
+              <button
+                key={p.id}
+                ref={(el) => { tileRefs.current[i] = el; }}
+                onClick={() => { setCursor(i); onPick(p); }}
+                disabled={outOfStock}
+                className={`group flex flex-col rounded-xl border bg-white overflow-hidden text-left hover:border-primary-300 hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                  i === cursor ? 'border-primary-500 ring-2 ring-primary-400 shadow-md' : 'border-surface-200'
+                }`}
+              >
+                <div className="aspect-square w-full bg-surface-50 flex items-center justify-center overflow-hidden">
+                  {p.image_url ? (
+                    <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-3xl font-black text-surface-300 select-none">{p.name.charAt(0).toUpperCase()}</span>
+                  )}
+                </div>
+                <div className="p-2.5 space-y-1">
+                  <p className="text-sm font-semibold text-surface-900 leading-tight line-clamp-2 min-h-[2.5em]">{p.name}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-primary-600">{fmt(p.selling_price)}</span>
+                    <span className={`text-[10px] font-medium ${outOfStock ? 'text-red-500' : lowStock ? 'text-amber-500' : 'text-surface-400'}`}>
+                      {outOfStock ? 'Out of stock' : formatQuantity(p.current_stock, p.unit_type)}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+
+// ─── Add-to-Cart Modal — pops up on every deliberate product selection (grid
+// tile or search pick), never on a barcode scan, so a cashier sets the exact
+// quantity/unit up front instead of adding 1 and editing the cart row after. ──
+function AddToCartModal({ product, onClose, onConfirm }: {
+  product: Product | null;
+  onClose: () => void;
+  onConfirm: (product: Product, baseQty: number) => void;
+}) {
+  const [unit, setUnit] = useState('');
+  const [qtyText, setQtyText] = useState('1');
+  const qtyRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (product) {
+      setUnit(product.unit_type || '');
+      setQtyText('1');
+      setTimeout(() => { qtyRef.current?.focus(); qtyRef.current?.select(); }, 50);
+    }
+  }, [product]);
+
+  if (!product) return null;
+
+  const unitOptions = getReceiveUnitOptions(product.unit_type);
+  const activeMeta = unitOptions.find((o) => o.value === unit);
+  const step = activeMeta?.step ?? getUnitMeta(product.unit_type).step;
+  const qty = parseFloat(qtyText) || 0;
+  const baseQty = convertToBaseUnit(qty, unit, product.unit_type);
+  const lineTotal = Math.max(0, product.selling_price * baseQty);
+
+  const confirm = () => {
+    if (baseQty <= 0) return;
+    onConfirm(product, baseQty);
+  };
+
+  return (
+    <Modal isOpen={!!product} onClose={onClose} title={product.name} size="sm">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between bg-surface-50 rounded-lg px-3 py-2">
+          <span className="text-sm text-surface-500">Price</span>
+          <span className="font-bold text-primary-600">{fmt(product.selling_price)} / {getUnitMeta(product.unit_type).abbr}</span>
+        </div>
+
+        <div>
+          <label className="label">Quantity</label>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setQtyText(String(Math.max(0, round3(qty - step))))}
+              className="w-11 h-11 shrink-0 rounded-lg bg-surface-100 text-xl font-bold text-surface-600 hover:bg-surface-200"
+            >−</button>
+            <input
+              ref={qtyRef}
+              type="number"
+              value={qtyText}
+              onChange={(e) => setQtyText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { confirm(); return; }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setQtyText(String(round3(qty + step))); return; }
+                if (e.key === 'ArrowDown') { e.preventDefault(); setQtyText(String(Math.max(0, round3(qty - step)))); return; }
+                if (unitOptions.length > 1 && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+                  e.preventDefault();
+                  const idx = unitOptions.findIndex((o) => o.value === unit);
+                  const dir = e.key === 'ArrowRight' ? 1 : -1;
+                  const next = unitOptions[(idx + dir + unitOptions.length) % unitOptions.length];
+                  setUnit(next.value);
+                }
+              }}
+              className="input-lg text-center font-mono flex-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              min="0" step={step}
+            />
+            <button
+              onClick={() => setQtyText(String(round3(qty + step)))}
+              className="w-11 h-11 shrink-0 rounded-lg bg-surface-100 text-xl font-bold text-surface-600 hover:bg-surface-200"
+            >+</button>
+            {unitOptions.length > 1 && (
+              <select className="input w-24 shrink-0" value={unit} onChange={(e) => setUnit(e.target.value)}>
+                {unitOptions.map((o) => <option key={o.value} value={o.value}>{o.abbr}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-surface-100">
+          <span className="text-sm font-semibold text-surface-700">Line Total</span>
+          <span className="text-xl font-black text-surface-900 font-mono">{fmt(lineTotal)}</span>
+        </div>
+
+        <button onClick={confirm} disabled={baseQty <= 0} className="btn-success w-full py-3 text-base font-bold disabled:opacity-40">
+          Add to Cart
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Main POS Page ────────────────────────────────────────────────────────────
 export default function POS() {
   const { user } = useAuthStore();
   const t = useT();
-  const { settings } = useSettingsStore();
+  const { settings, hasFeature } = useSettingsStore();
   const toast    = useToastStore();
   const pos      = usePOSStore();
+  const restaurant = useRestaurantStore();
+  // Mutually exclusive with plain retail checkout — set from the Settings
+  // page's "Operating Mode" switch, not just plan eligibility. A till is
+  // either running regular POS checkout or restaurant ordering, never both
+  // at once (see the effect below, which forces the order type off/onto
+  // 'retail' the instant this flips).
+  const restaurantModeOn = hasFeature('restaurant_mode') && !!settings?.restaurant_mode_enabled;
+  const [couponInput, setCouponInput] = useState('');
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [markAsVat, setMarkAsVat] = useState(false);
+  const [catalogView, setCatalogView] = useState<'grid' | 'cart'>('grid');
+  const [pickedProduct, setPickedProduct] = useState<Product | null>(null);
+  const [heldBillsCount, setHeldBillsCount] = useState(0);
+  const [heldBillsModalOpen, setHeldBillsModalOpen] = useState(false);
+  const [heldBillsList, setHeldBillsList] = useState<Sale[]>([]);
+  const [loadingHeldBills, setLoadingHeldBills] = useState(false);
 
   const [hasShift, setHasShift]         = useState<boolean | null>(null);
   const [currentShift, setCurrentShift] = useState<{ id: number; shift_number: string; opening_cash: number } | null>(null);
@@ -730,6 +978,14 @@ export default function POS() {
   // (e.g. a kg-tracked product switched to grams for one line) — purely a
   // display/entry convenience; the cart itself always stores base-unit qty.
   const [displayUnits, setDisplayUnits] = useState<Record<number, string>>({});
+  // Raw in-progress text for the cart's quantity input, keyed by product_id —
+  // exists only while a field is actively being retyped (e.g. cleared to
+  // enter "2 kg" digit by digit). Without this, every keystroke round-trips
+  // through the store as a real quantity, and a momentarily-empty field
+  // parses to 0, which updateQty treats as "remove this line" — deleting the
+  // row before the user can finish typing. Cleared on blur once the value is
+  // actually committed, so the field falls back to the store's real quantity.
+  const [qtyDrafts, setQtyDrafts] = useState<Record<number, string>>({});
 
   // Check active shift
   useEffect(() => {
@@ -753,11 +1009,27 @@ export default function POS() {
     const h = (e: KeyboardEvent) => {
       if (e.key === 'F10') { e.preventDefault(); if (pos.cart.length > 0) setIsPaymentOpen(true); }
       if (e.key === 'Escape') setIsPaymentOpen(false);
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') { e.preventDefault(); if (pos.cart.length > 0 && confirm('Clear the cart?')) { pos.clearCart(); setDisplayUnits({}); } }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Delete') { e.preventDefault(); if (pos.cart.length > 0 && confirm('Clear the cart?')) { pos.clearCart(); setDisplayUnits({}); setQtyDrafts({}); } }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [pos]);
+
+  // Keeps the order type in lockstep with the till's operating mode —
+  // switching modes mid-session (rare, but possible if an admin flips the
+  // Settings toggle while POS is open in another tab) snaps the current
+  // screen to match rather than leaving it in an impossible in-between state.
+  useEffect(() => {
+    if (restaurantModeOn && restaurant.orderType === 'retail') {
+      restaurant.startOrder('takeaway');
+    } else if (!restaurantModeOn && restaurant.orderType !== 'retail') {
+      restaurant.reset();
+      pos.clearCart();
+      setDisplayUnits({});
+      setQtyDrafts({});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurantModeOn]);
 
   const handlePayment = async (method: 'cash' | 'card' | 'mixed' | 'credit', cashTendered: number, cardAmount: number, customer?: Customer) => {
     setIsProcessing(true);
@@ -771,18 +1043,224 @@ export default function POS() {
         customer_id: customer?.id,
         customer_name: customer?.name || pos.customerName || undefined,
         notes: pos.notes || undefined,
+        coupon_code: pos.couponCode || undefined,
+        is_vat_invoice: markAsVat || undefined,
       });
       const detail = await api.get(`/sales/${r.data.data.id}`);
       setCompletedSale(detail.data.data);
       setIsPaymentOpen(false);
       pos.clearCart();
+      setMarkAsVat(false);
       setDisplayUnits({});
+      setQtyDrafts({});
       setMobileView('cart');
       toast.success(`Sale ${r.data.data.sale_number} completed`);
     } catch (err) {
       const e = err as AxiosError<{ message: string }>;
       toast.error(e.response?.data?.message || 'Payment failed');
     } finally { setIsProcessing(false); }
+  };
+
+  const handleAddToCart = (product: Product, baseQty: number) => {
+    pos.addProduct(product, baseQty);
+    setPickedProduct(null);
+  };
+
+  // ── Restaurant Mode: held-order helpers ────────────────────────────────────
+
+  // Creates the held order on first use; every call after that just returns
+  // the existing id — nothing here decides WHAT gets sent, only that a sale
+  // row exists to send it to.
+  const ensureHeldSale = async (): Promise<{ id: number; justCreated: boolean }> => {
+    if (restaurant.heldSaleId) return { id: restaurant.heldSaleId, justCreated: false };
+    const r = await api.post('/sales/held', {
+      cart_items: pos.cart,
+      order_type: restaurant.orderType,
+      table_id: restaurant.tableId || undefined,
+      customer_name: pos.customerName || undefined,
+      customer_id: pos.customerId || undefined,
+      notes: pos.notes || undefined,
+    });
+    const id = r.data.data.id;
+    restaurant.setHeldSale(id);
+    return { id, justCreated: true };
+  };
+
+  const handleSendToKitchen = async () => {
+    if (pos.cart.length === 0) return;
+    setIsProcessing(true);
+    try {
+      const { id: saleId, justCreated } = await ensureHeldSale();
+
+      // A fresh hold already inserted every cart line — only an EXISTING
+      // held order needs its new-since-last-send items added first.
+      if (!justCreated) {
+        const delta = pos.cart
+          .map((item) => {
+            const prevQty = restaurant.lastSentQuantities[item.product_id] || 0;
+            const deltaQty = item.quantity - prevQty;
+            return deltaQty > 0 ? { ...item, quantity: deltaQty } : null;
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
+        if (delta.length > 0) {
+          await api.post(`/sales/held/${saleId}/items`, { cart_items: delta });
+        }
+      }
+
+      const kotRes = await api.post(`/sales/held/${saleId}/send-to-kitchen`);
+      const items = kotRes.data.data.items as Array<{
+        product_name: string; quantity: string | number; station_id: number | null; station_name: string | null;
+      }>;
+
+      if (items.length === 0) {
+        toast.info('Nothing new to send to the kitchen');
+      } else {
+        const groups = new Map<string, { stationName: string; items: typeof items }>();
+        for (const it of items) {
+          const key = it.station_id != null ? String(it.station_id) : 'unassigned';
+          if (!groups.has(key)) groups.set(key, { stationName: it.station_name || 'Kitchen', items: [] });
+          groups.get(key)!.items.push(it);
+        }
+        for (const [key, group] of groups) {
+          const html = buildKotDocument({
+            saleNumber: String(saleId),
+            stationName: group.stationName,
+            orderType: restaurant.orderType,
+            tableName: restaurant.tableName || undefined,
+            items: group.items.map((i) => ({ product_name: i.product_name, quantity: Number(i.quantity) })),
+          });
+          await sendPrintJob(html, key === 'unassigned' ? undefined : Number(key));
+        }
+        toast.success('Sent to kitchen');
+      }
+
+      const quantities: Record<number, number> = {};
+      for (const item of pos.cart) quantities[item.product_id] = (quantities[item.product_id] || 0) + item.quantity;
+      restaurant.recordSent(quantities);
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Failed to send to kitchen');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCompleteHeldSale = async (method: 'cash' | 'card' | 'mixed' | 'credit', cashTendered: number, cardAmount: number, customer?: Customer) => {
+    setIsProcessing(true);
+    try {
+      const { id: saleId } = await ensureHeldSale();
+      const r = await api.post(`/sales/held/${saleId}/complete`, {
+        payment_method: method,
+        cash_tendered: cashTendered,
+        card_amount: cardAmount,
+        bill_discount: pos.billDiscount,
+        coupon_code: pos.couponCode || undefined,
+        customer_id: customer?.id,
+        customer_name: customer?.name || pos.customerName || undefined,
+        notes: pos.notes || undefined,
+        is_vat_invoice: markAsVat || undefined,
+      });
+      const detail = await api.get(`/sales/${r.data.data.id}`);
+      setCompletedSale(detail.data.data);
+      setIsPaymentOpen(false);
+      pos.clearCart();
+      restaurant.reset();
+      setMarkAsVat(false);
+      setDisplayUnits({});
+      setQtyDrafts({});
+      setMobileView('cart');
+      toast.success(`Order ${r.data.data.sale_number} completed`);
+      refreshHeldBillsCount();
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Payment failed');
+    } finally { setIsProcessing(false); }
+  };
+
+  const handleCancelHeldOrder = async () => {
+    if (restaurant.heldSaleId) {
+      const reason = window.prompt('Reason for cancelling this order:');
+      if (reason === null) return;
+      try {
+        await api.post(`/sales/held/${restaurant.heldSaleId}/cancel`, { reason: reason || 'Cancelled' });
+        toast.success('Order cancelled');
+      } catch (err) {
+        const e = err as AxiosError<{ message: string }>;
+        toast.error(e.response?.data?.message || 'Failed to cancel order');
+        return;
+      }
+    }
+    restaurant.reset();
+    pos.clearCart();
+    setDisplayUnits({});
+    refreshHeldBillsCount();
+  };
+
+  // ── POS Mode: hold-bill helpers ─────────────────────────────────────────────
+
+  const refreshHeldBillsCount = useCallback(async () => {
+    try {
+      const r = await api.get('/sales?status=held&order_type=retail&limit=1');
+      setHeldBillsCount(r.data.total || 0);
+    } catch { /* best-effort — a stale count badge isn't worth surfacing an error for */ }
+  }, []);
+
+  useEffect(() => { if (hasShift) refreshHeldBillsCount(); }, [hasShift, refreshHeldBillsCount]);
+
+  const handleHoldBill = async () => {
+    if (pos.cart.length === 0) return;
+    setIsProcessing(true);
+    try {
+      await ensureHeldSale();
+      toast.success('Bill held — starting a new one');
+      pos.clearCart();
+      restaurant.reset();
+      setDisplayUnits({});
+      setQtyDrafts({});
+      refreshHeldBillsCount();
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Failed to hold bill');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const openHeldBills = async () => {
+    setHeldBillsModalOpen(true);
+    setLoadingHeldBills(true);
+    try {
+      const r = await api.get('/sales?status=held&order_type=retail&limit=50');
+      setHeldBillsList(r.data.data);
+    } finally {
+      setLoadingHeldBills(false);
+    }
+  };
+
+  const resumeHeldBill = async (sale: Sale) => {
+    try {
+      const detail = await api.get(`/sales/${sale.id}`);
+      const items: CartItem[] = (detail.data.data.items || []).map((i: Record<string, unknown>) => ({
+        product_id: i.product_id as number,
+        product_name: i.product_name as string,
+        barcode: i.barcode as string | undefined,
+        sku: '',
+        quantity: Number(i.quantity),
+        unit_price: Number(i.unit_price),
+        original_price: Number(i.unit_price),
+        cost_price: Number(i.cost_price),
+        item_discount: Number(i.item_discount) || 0,
+        tax_rate: Number(i.tax_rate) || 0,
+      }));
+      restaurant.startOrder('retail');
+      restaurant.setHeldSale(sale.id);
+      pos.loadCart(items);
+      setDisplayUnits({});
+      setQtyDrafts({});
+      setHeldBillsModalOpen(false);
+    } catch {
+      toast.error('Failed to load held bill');
+    }
   };
 
   const handleApplyPromotion = async (promo: Promotion) => {
@@ -801,6 +1279,23 @@ export default function POS() {
       toast.error(e.response?.data?.message || 'Failed to apply promotion');
     } finally {
       setApplyingPromoId(null);
+    }
+  };
+
+  const handleApplyCoupon = async () => {
+    if (!couponInput.trim()) return;
+    setApplyingCoupon(true);
+    try {
+      const baseAmount = Math.max(0, subtotal - itemDiscount - pos.billDiscount);
+      const r = await api.post('/coupons/preview', { code: couponInput.trim(), base_amount: baseAmount });
+      pos.applyCoupon(couponInput.trim().toUpperCase(), r.data.data.discount_amount);
+      setCouponInput('');
+      toast.success(`Coupon "${couponInput.trim().toUpperCase()}" applied`);
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Invalid coupon code');
+    } finally {
+      setApplyingCoupon(false);
     }
   };
 
@@ -871,7 +1366,23 @@ export default function POS() {
         <div className="bg-white border-b border-surface-200 px-5 py-3 flex items-center gap-4">
           {/* Search */}
           <div className="flex-1 max-w-2xl">
-            <ProductSearch onAdd={(p) => pos.addProduct(p)} />
+            <ProductSearch onScan={(p) => pos.addProduct(p)} onPick={(p) => setPickedProduct(p)} />
+          </div>
+
+          {/* Browse / Cart toggle */}
+          <div className="flex items-center gap-1 bg-surface-100 rounded-lg p-1 shrink-0">
+            <button
+              onClick={() => setCatalogView('grid')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${catalogView === 'grid' ? 'bg-white shadow-sm text-primary-700' : 'text-surface-500 hover:text-surface-700'}`}
+            >
+              Browse
+            </button>
+            <button
+              onClick={() => setCatalogView('cart')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${catalogView === 'cart' ? 'bg-white shadow-sm text-primary-700' : 'text-surface-500 hover:text-surface-700'}`}
+            >
+              Cart{pos.cart.length > 0 ? ` (${pos.cart.length})` : ''}
+            </button>
           </div>
 
           {/* Shift info */}
@@ -903,7 +1414,11 @@ export default function POS() {
           </div>
         </div>
 
+        {catalogView === 'grid' && <ProductGrid onPick={(p) => setPickedProduct(p)} />}
+
         {/* Cart — card-based with inline promotions */}
+        {catalogView === 'cart' && (
+        <>
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
           {pos.cart.length === 0 ? (
             <EmptyCart />
@@ -936,9 +1451,35 @@ export default function POS() {
                     return (
                       <>
                         <div className="flex items-center border border-primary-200 rounded overflow-hidden h-7 bg-white shrink-0 focus-within:border-primary-400 transition-colors">
-                          <button onClick={() => setDisplayQty(displayQty - step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
-                          <input type="number" value={displayQty} onChange={(e) => setDisplayQty(parseFloat(e.target.value) || 0)} className="w-9 text-center text-sm font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" min="0.001" step={step} />
-                          <button onClick={() => setDisplayQty(displayQty + step)} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
+                          <button onClick={() => { setQtyDrafts((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; }); setDisplayQty(displayQty - step); }} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">−</button>
+                          <input
+                            type="number"
+                            value={qtyDrafts[item.product_id] ?? String(displayQty)}
+                            onChange={(e) => setQtyDrafts((prev) => ({ ...prev, [item.product_id]: e.target.value }))}
+                            onBlur={(e) => {
+                              setQtyDrafts((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; });
+                              const parsed = parseFloat(e.target.value);
+                              if (parsed > 0) setDisplayQty(parsed);
+                              // Empty/0/invalid on blur reverts to the last real quantity — clearing
+                              // the field mid-edit must never remove the line on its own; only the
+                              // explicit Remove button (or the − stepper reaching 0) does that.
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); return; }
+                              if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                setQtyDrafts((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; });
+                                setDisplayQty(displayQty + step);
+                              } else if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                setQtyDrafts((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; });
+                                if (displayQty - step > 0) setDisplayQty(displayQty - step);
+                              }
+                            }}
+                            className="w-9 text-center text-sm font-bold bg-transparent border-0 focus:outline-none focus:ring-0 text-surface-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            min="0.001" step={step}
+                          />
+                          <button onClick={() => { setQtyDrafts((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; }); setDisplayQty(displayQty + step); }} className="w-7 h-full flex items-center justify-center text-surface-500 hover:bg-primary-100 transition-colors font-bold select-none">+</button>
                         </div>
                         {unitOptions.length > 1 ? (
                           <select
@@ -972,7 +1513,7 @@ export default function POS() {
                   <p className="text-sm font-black text-surface-900 font-mono shrink-0">{fmt((item.unit_price - item.item_discount) * item.quantity)}</p>
 
                   {/* Remove */}
-                  <button onClick={() => { pos.removeItem(item.product_id); setDisplayUnits((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; }); }} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
+                  <button onClick={() => { pos.removeItem(item.product_id); setDisplayUnits((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; }); setQtyDrafts((prev) => { const { [item.product_id]: _, ...rest } = prev; return rest; }); }} className="shrink-0 w-5 h-5 flex items-center justify-center text-surface-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all" title="Remove">
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -1027,13 +1568,15 @@ export default function POS() {
                 Bill
               </button>
               <button
-                onClick={() => { pos.clearCart(); setDisplayUnits({}); }}
+                onClick={() => { pos.clearCart(); setDisplayUnits({}); setQtyDrafts({}); }}
                 className="text-sm text-red-400 hover:text-red-600 font-semibold transition-colors"
               >
                 {t.pos_clear_cart}
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -1056,6 +1599,44 @@ export default function POS() {
             <p className="text-xs text-surface-400 mt-0.5">{new Date().toLocaleTimeString()}</p>
           </div>
         </div>
+
+        {/* Restaurant Mode: current order context — the till only ever runs
+            ONE mode at a time (see restaurantModeOn/its effect above), so
+            this bar is either always showing or never showing, no manual
+            "start" step needed. */}
+        {restaurantModeOn && (
+          <div className="px-5 py-2.5 border-b border-surface-100 flex items-center justify-between bg-primary-50">
+            <span className="text-sm font-semibold text-primary-700">
+              {restaurant.orderType === 'dine_in' ? '🍽 Dine In' : restaurant.orderType === 'delivery' ? '🚚 Delivery' : '🥡 Take Away'}
+              {restaurant.tableName && ` — ${restaurant.tableName}`}
+            </span>
+            <div className="flex items-center gap-3">
+              {restaurant.orderType !== 'dine_in' && pos.cart.length === 0 && !restaurant.heldSaleId && (
+                <Link to="/tables" className="text-xs text-primary-600 hover:text-primary-800 font-medium">Dine In Instead</Link>
+              )}
+              <button onClick={handleCancelHeldOrder} className="text-xs text-red-500 hover:text-red-700 font-medium">
+                {restaurant.heldSaleId || pos.cart.length > 0 ? 'Cancel Order' : 'Reset'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* POS Mode: hold-bill context — a plain till doesn't use tables, so
+            "held bills" get their own simple browse-and-resume list instead. */}
+        {!restaurantModeOn && (
+          <div className="px-5 py-2 border-b border-surface-100 flex items-center justify-between">
+            {restaurant.heldSaleId ? (
+              <>
+                <span className="text-sm font-semibold text-primary-700">⏸ Resuming Held Bill</span>
+                <button onClick={handleCancelHeldOrder} className="text-xs text-red-500 hover:text-red-700 font-medium">Cancel</button>
+              </>
+            ) : (
+              <button onClick={openHeldBills} className="text-xs font-medium text-primary-600 hover:text-primary-700">
+                📋 Held Bills{heldBillsCount > 0 ? ` (${heldBillsCount})` : ''}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Optional fields */}
         <div className="px-5 py-3 space-y-3 border-b border-surface-100">
@@ -1080,6 +1661,39 @@ export default function POS() {
               min="0" step="0.01"
             />
           </div>
+          {hasFeature('coupons') && (
+            <div>
+              <label className="label text-xs">Coupon Code</label>
+              {pos.couponCode ? (
+                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <span className="text-sm font-mono font-semibold text-emerald-700">{pos.couponCode}</span>
+                  <button onClick={() => pos.clearCoupon()} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input py-2 text-sm font-mono uppercase"
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleApplyCoupon(); }}
+                    placeholder="e.g. SAVE10"
+                  />
+                  <button onClick={handleApplyCoupon} disabled={applyingCoupon || !couponInput.trim()} className="btn-secondary btn-sm shrink-0 disabled:opacity-40">
+                    {applyingCoupon ? '...' : 'Apply'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {hasFeature('vat_invoice') && (
+            <label className="flex items-center gap-2 cursor-pointer pt-1">
+              <input type="checkbox" checked={markAsVat} onChange={(e) => setMarkAsVat(e.target.checked)} />
+              <span className="text-xs font-medium text-surface-600">Mark as VAT Invoice</span>
+            </label>
+          )}
         </div>
 
         {/* Applied promotions chips */}
@@ -1157,6 +1771,12 @@ export default function POS() {
                 <span className="font-mono font-semibold">−{fmt(pos.billDiscount)}</span>
               </div>
             )}
+            {pos.couponDiscount > 0 && (
+              <div className="flex justify-between text-red-500">
+                <span className="font-medium">Coupon ({pos.couponCode})</span>
+                <span className="font-mono font-semibold">−{fmt(pos.couponDiscount)}</span>
+              </div>
+            )}
             {tax > 0 && (
               <div className="flex justify-between text-surface-600">
                 <span className="font-medium">{t.pos_tax}</span>
@@ -1171,19 +1791,49 @@ export default function POS() {
             <span className="text-4xl font-black text-surface-900 font-mono">{fmt(total)}</span>
           </div>
 
-          {/* Charge button */}
-          <button
-            onClick={() => setIsPaymentOpen(true)}
-            disabled={pos.cart.length === 0}
-            className="mt-2 w-full btn-success py-5 text-lg font-bold rounded-xl disabled:opacity-40 gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-            </svg>
-            {t.pos_charge} {fmt(total)}
-            <span className="ml-auto text-xs font-normal opacity-60">F10</span>
-          </button>
+          {/* Charge button(s) */}
+          {!restaurantModeOn ? (
+            <div className="mt-2 space-y-2">
+              {!restaurant.heldSaleId && (
+                <button
+                  onClick={handleHoldBill}
+                  disabled={pos.cart.length === 0 || isProcessing}
+                  className="w-full btn-secondary py-2.5 text-sm font-semibold rounded-xl disabled:opacity-40"
+                >
+                  ⏸ Hold Bill
+                </button>
+              )}
+              <button
+                onClick={() => setIsPaymentOpen(true)}
+                disabled={pos.cart.length === 0}
+                className="w-full btn-success py-5 text-lg font-bold rounded-xl disabled:opacity-40 gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+                {restaurant.heldSaleId ? 'Resume & ' : ''}{t.pos_charge} {fmt(total)}
+                <span className="ml-auto text-xs font-normal opacity-60">F10</span>
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2 space-y-2">
+              <button
+                onClick={handleSendToKitchen}
+                disabled={pos.cart.length === 0 || isProcessing}
+                className="w-full btn-secondary py-3 text-sm font-bold rounded-xl disabled:opacity-40"
+              >
+                🖨 Send to Kitchen
+              </button>
+              <button
+                onClick={() => setIsPaymentOpen(true)}
+                disabled={pos.cart.length === 0}
+                className="w-full btn-success py-4 text-lg font-bold rounded-xl disabled:opacity-40"
+              >
+                Settle Bill {fmt(total)}
+              </button>
+            </div>
+          )}
 
           <p className="text-center text-xs text-surface-400 pb-1 select-none">
             {t.pos_ctrl_del}
@@ -1196,11 +1846,37 @@ export default function POS() {
         isOpen={isPaymentOpen}
         onClose={() => setIsPaymentOpen(false)}
         total={total}
-        onConfirm={handlePayment}
+        onConfirm={(restaurantModeOn || restaurant.heldSaleId) ? handleCompleteHeldSale : handlePayment}
         isProcessing={isProcessing}
       />
       <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
       <SaleReturnModal isOpen={isReturnOpen} onClose={() => setIsReturnOpen(false)} />
+
+      <AddToCartModal product={pickedProduct} onClose={() => setPickedProduct(null)} onConfirm={handleAddToCart} />
+
+      <Modal isOpen={heldBillsModalOpen} onClose={() => setHeldBillsModalOpen(false)} title="Held Bills" size="md">
+        {loadingHeldBills ? (
+          <LoadingSpinner />
+        ) : heldBillsList.length === 0 ? (
+          <p className="text-sm text-surface-400 text-center py-6">No held bills.</p>
+        ) : (
+          <div className="space-y-2">
+            {heldBillsList.map((sale) => (
+              <button
+                key={sale.id}
+                onClick={() => resumeHeldBill(sale)}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-surface-200 hover:border-primary-300 hover:bg-primary-50 transition-colors text-left"
+              >
+                <div>
+                  <p className="text-sm font-medium text-surface-900">{sale.customer_name || 'Walk-in'}</p>
+                  <p className="text-xs text-surface-400">{new Date(sale.created_at).toLocaleString()}</p>
+                </div>
+                <span className="font-mono font-semibold text-primary-600">{fmt(sale.total_amount)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

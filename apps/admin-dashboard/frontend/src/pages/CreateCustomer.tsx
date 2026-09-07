@@ -5,11 +5,15 @@ const FEATURE_LABELS: Record<string, string> = {
   reports: 'Reports & analytics',
   users: 'Multiple staff logins',
   promotions: 'Promotions & discounts',
+  coupons: 'Coupon codes',
   customers: 'Credit customers',
   fifo_costing: 'Batch / FIFO costing',
   multi_language: 'Multi-language',
   multi_currency: 'Multi-currency',
   vat_invoice: 'VAT tax invoices',
+  restaurant_mode: 'Restaurant Mode (tables, dine-in/takeaway)',
+  kot_printing: 'Kitchen ticket (KOT) printing',
+  multi_terminal: 'Multi-terminal / LAN mode',
 };
 const ALL_FEATURES = Object.keys(FEATURE_LABELS);
 

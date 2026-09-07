@@ -14,6 +14,8 @@ interface POSStore {
   appliedPromotionNames: string[];
   appliedPromotionIds: number[];
   prePromoCart: CartItem[] | null;
+  couponCode: string | null;
+  couponDiscount: number;
 
   // Computed
   subtotal: () => number;
@@ -32,8 +34,11 @@ interface POSStore {
   setCustomerId: (id: number | null) => void;
   setNotes: (notes: string) => void;
   clearCart: () => void;
+  loadCart: (items: CartItem[]) => void;
   applyCartPromotions: (promotedItems: CartItem[], promoName: string, promoId: number) => void;
   clearPromotions: () => void;
+  applyCoupon: (code: string, discount: number) => void;
+  clearCoupon: () => void;
 }
 
 export const usePOSStore = create<POSStore>((set, get) => ({
@@ -45,6 +50,8 @@ export const usePOSStore = create<POSStore>((set, get) => ({
   appliedPromotionNames: [],
   appliedPromotionIds: [],
   prePromoCart: null,
+  couponCode: null,
+  couponDiscount: 0,
 
   subtotal: () => {
     return round2(get().cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0));
@@ -68,7 +75,8 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     const itemDiscount = get().itemDiscountTotal();
     const tax = get().taxTotal();
     const billDiscount = get().billDiscount;
-    return round2(Math.max(0, subtotal - itemDiscount - billDiscount + tax));
+    const couponDiscount = get().couponDiscount;
+    return round2(Math.max(0, subtotal - itemDiscount - billDiscount - couponDiscount + tax));
   },
 
   addProduct: (product, qty = 1) => {
@@ -174,6 +182,23 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       appliedPromotionNames: [],
       appliedPromotionIds: [],
       prePromoCart: null,
+      couponCode: null,
+      couponDiscount: 0,
+    });
+  },
+
+  // Replaces the cart wholesale — used to resume an existing held order
+  // (its current sale_items become the starting cart), distinct from
+  // addProduct's merge-by-product_id behavior.
+  loadCart: (items) => {
+    set({
+      cart: items,
+      billDiscount: 0,
+      appliedPromotionNames: [],
+      appliedPromotionIds: [],
+      prePromoCart: null,
+      couponCode: null,
+      couponDiscount: 0,
     });
   },
 
@@ -194,5 +219,23 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       appliedPromotionIds: [],
       prePromoCart: null,
     }));
+  },
+
+  // A coupon replaces (never stacks with) an active promotion — applying one
+  // clears any promotion currently on the cart first, same as a manual
+  // "Clear" would, before recording the coupon itself.
+  applyCoupon: (code, discount) => {
+    set((state) => ({
+      cart: state.prePromoCart ?? state.cart,
+      appliedPromotionNames: [],
+      appliedPromotionIds: [],
+      prePromoCart: null,
+      couponCode: code,
+      couponDiscount: discount,
+    }));
+  },
+
+  clearCoupon: () => {
+    set({ couponCode: null, couponDiscount: 0 });
   },
 }));

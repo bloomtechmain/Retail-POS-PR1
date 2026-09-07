@@ -57,10 +57,11 @@ export const getProducts = async (params: {
   );
 
   const dataResult = await query(
-    `SELECT p.*, c.name as category_name, b.name as brand_name
+    `SELECT p.*, c.name as category_name, b.name as brand_name, ks.name as station_name
      FROM products p
      LEFT JOIN categories c ON p.category_id = c.id
      LEFT JOIN brands b ON p.brand_id = b.id
+     LEFT JOIN kitchen_stations ks ON p.station_id = ks.id
      WHERE ${where}
      ORDER BY p.name ASC
      LIMIT $${i} OFFSET $${i + 1}`,
@@ -79,10 +80,11 @@ export const getProducts = async (params: {
 
 export const getProductById = async (id: number): Promise<Product> => {
   const result = await query(
-    `SELECT p.*, c.name as category_name, b.name as brand_name
+    `SELECT p.*, c.name as category_name, b.name as brand_name, ks.name as station_name
      FROM products p
      LEFT JOIN categories c ON p.category_id = c.id
      LEFT JOIN brands b ON p.brand_id = b.id
+     LEFT JOIN kitchen_stations ks ON p.station_id = ks.id
      WHERE p.id = $1 AND p.deleted_at IS NULL`,
     [id]
   );
@@ -92,10 +94,11 @@ export const getProductById = async (id: number): Promise<Product> => {
 
 export const getProductByBarcode = async (barcode: string): Promise<Product> => {
   const result = await query(
-    `SELECT p.*, c.name as category_name, b.name as brand_name
+    `SELECT p.*, c.name as category_name, b.name as brand_name, ks.name as station_name
      FROM products p
      LEFT JOIN categories c ON p.category_id = c.id
      LEFT JOIN brands b ON p.brand_id = b.id
+     LEFT JOIN kitchen_stations ks ON p.station_id = ks.id
      WHERE (p.barcode = $1 OR p.sku = $1) AND p.deleted_at IS NULL AND p.is_active = TRUE`,
     [barcode]
   );
@@ -119,9 +122,9 @@ export const createProduct = async (data: Partial<Product>): Promise<Product> =>
     const result = await client.query(
       `INSERT INTO products (
          name, name_en, barcode, sku, description, selling_price, cost_price, avg_cost,
-         category_id, brand_id, unit_type, current_stock, low_stock_level,
+         category_id, brand_id, station_id, unit_type, current_stock, low_stock_level,
          tax_rate, image_url, is_active, allow_negative_stock, costing_method
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [
         data.name,
@@ -134,6 +137,7 @@ export const createProduct = async (data: Partial<Product>): Promise<Product> =>
         openingCost,
         data.category_id || null,
         data.brand_id || null,
+        data.station_id || null,
         data.unit_type || 'piece',
         openingStock,
         data.low_stock_level || 5,
@@ -189,7 +193,7 @@ export const updateProduct = async (id: number, data: Partial<Product>): Promise
   // stock until the next GRN receipt starts building real batches.
   const allowed = [
     'name', 'name_en', 'barcode', 'sku', 'description', 'selling_price', 'cost_price',
-    'category_id', 'brand_id', 'unit_type', 'low_stock_level',
+    'category_id', 'brand_id', 'station_id', 'unit_type', 'low_stock_level',
     'tax_rate', 'image_url', 'is_active', 'allow_negative_stock', 'costing_method',
   ];
 

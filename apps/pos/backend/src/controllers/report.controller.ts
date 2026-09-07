@@ -48,6 +48,30 @@ export const creditReport = async (req: AuthRequest, res: Response, next: NextFu
   } catch (err) { next(err); }
 };
 
+export const stockMovementReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { date_from, date_to } = req.query;
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await reportService.getStockMovementReport({
+      date_from: (date_from as string) || today,
+      date_to: (date_to as string) || today,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
+export const promotionsReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { date_from, date_to } = req.query;
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await reportService.getPromotionsReport({
+      date_from: (date_from as string) || today,
+      date_to: (date_to as string) || today,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};
+
 export const cashierReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { date_from, date_to } = req.query;

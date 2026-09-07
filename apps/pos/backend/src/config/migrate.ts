@@ -227,6 +227,57 @@ export const runMigrations = async (): Promise<void> => {
         CONSTRAINT vat_invoice_counter_singleton CHECK (id = 1)
       )`,
       `INSERT INTO vat_invoice_counter (id, next_number) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`,
+      `CREATE TABLE IF NOT EXISTS coupons (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) UNIQUE NOT NULL,
+        type VARCHAR(20) NOT NULL,
+        discount_value DECIMAL(10,4) NOT NULL,
+        min_purchase_amount DECIMAL(12,2),
+        max_uses INTEGER,
+        uses_count INTEGER NOT NULL DEFAULT 0,
+        max_uses_per_customer INTEGER,
+        start_date DATE,
+        end_date DATE,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_discount DECIMAL(12,2) DEFAULT 0`,
+      `CREATE TABLE IF NOT EXISTS kitchen_stations (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `ALTER TABLE products ADD COLUMN IF NOT EXISTS station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL`,
+      `CREATE INDEX IF NOT EXISTS idx_products_station ON products(station_id) WHERE station_id IS NOT NULL`,
+      `CREATE TABLE IF NOT EXISTS tables (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50) NOT NULL,
+        capacity INTEGER,
+        status VARCHAR(20) NOT NULL DEFAULT 'available',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        deleted_at TIMESTAMP
+      )`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS table_id INTEGER REFERENCES tables(id)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS order_type VARCHAR(20) NOT NULL DEFAULT 'retail'`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS kot_printed_at TIMESTAMP`,
+      `CREATE INDEX IF NOT EXISTS idx_sales_table ON sales(table_id) WHERE table_id IS NOT NULL`,
+      `ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS kot_sent_at TIMESTAMP`,
+      `CREATE TABLE IF NOT EXISTS terminals (
+        id SERIAL PRIMARY KEY,
+        fingerprint VARCHAR(64) UNIQUE NOT NULL,
+        name VARCHAR(255),
+        last_seen_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+      `ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE`,
+      `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_reg_no VARCHAR(100)`,
       ];
       for (const sql of alterations) {
         await query(sql, []);

@@ -52,6 +52,7 @@ export interface Settings {
   vat_registration_number?: string;
   plan_key: string;
   setup_completed: boolean;
+  restaurant_mode_enabled: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -79,6 +80,8 @@ export interface Product {
   category_name?: string;
   brand_id?: number;
   brand_name?: string;
+  station_id?: number;
+  station_name?: string;
   unit_type: string;
   current_stock: number;
   low_stock_level: number;
@@ -211,6 +214,47 @@ export interface Promotion {
   updated_at: Date;
 }
 
+export interface Terminal {
+  id: number;
+  fingerprint: string;
+  name?: string;
+  last_seen_at: Date;
+  created_at: Date;
+}
+
+export interface KitchenStation {
+  id: number;
+  name: string;
+  is_active: boolean;
+  created_at: Date;
+}
+
+export interface DiningTable {
+  id: number;
+  name: string;
+  capacity?: number;
+  status: 'available' | 'occupied' | 'reserved';
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface Coupon {
+  id: number;
+  code: string;
+  type: 'percent' | 'fixed';
+  discount_value: number;
+  min_purchase_amount?: number;
+  max_uses?: number;
+  uses_count: number;
+  max_uses_per_customer?: number;
+  start_date?: string;
+  end_date?: string;
+  is_active: boolean;
+  created_by?: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface Customer {
   id: number;
   name: string;
@@ -221,6 +265,8 @@ export interface Customer {
   current_balance: number;
   notes?: string;
   is_active: boolean;
+  is_vat_customer: boolean;
+  vat_reg_no?: string;
   created_at: Date;
   updated_at: Date;
   deleted_at?: Date;
@@ -260,6 +306,11 @@ export interface Sale {
   notes?: string;
   customer_name?: string;
   customer_id?: number;
+  coupon_id?: number;
+  coupon_discount?: number;
+  table_id?: number;
+  order_type: 'retail' | 'dine_in' | 'takeaway' | 'delivery';
+  kot_printed_at?: Date;
   is_vat_invoice?: boolean;
   vat_invoice_number?: string;
   buyer_vat_reg_no?: string;
@@ -357,37 +408,55 @@ export interface CreateSalePayload {
   customer_name?: string;
   customer_id?: number;
   notes?: string;
+  coupon_code?: string;
+  table_id?: number;
+  order_type?: 'retail' | 'dine_in' | 'takeaway' | 'delivery';
+  is_vat_invoice?: boolean;
 }
 
-export interface VatInvoiceCartItem {
-  product_id: number;
-  product_name: string;
-  barcode?: string;
-  sku: string;
-  quantity: number;
-  unit_price: number;
-  original_price: number;
-  cost_price: number;
-  item_discount: number;
-  // One or more named taxes applied to this line, each computed on the same
-  // taxable (post item-discount) amount and summed — not compounded.
-  taxes: Array<{ tax_rate_id?: number; name: string; rate: number }>;
+export interface CreateHeldSalePayload {
+  cart_items: CartItem[];
+  // 'retail' covers a plain "hold this bill, start a new one" on a normal
+  // POS till — unlike dine_in/takeaway/delivery it needs no restaurant_mode
+  // feature (see the inline check in createHeldSale).
+  order_type: 'retail' | 'dine_in' | 'takeaway' | 'delivery';
+  table_id?: number;
+  customer_name?: string;
+  customer_id?: number;
+  notes?: string;
 }
 
-export interface CreateVatInvoicePayload {
-  cart_items: VatInvoiceCartItem[];
-  bill_discount: number;
+export interface CompleteHeldSalePayload {
   payment_method: 'cash' | 'card' | 'mixed' | 'credit';
   cash_tendered: number;
   card_amount: number;
+  bill_discount?: number;
+  coupon_code?: string;
   customer_name?: string;
   customer_id?: number;
+  notes?: string;
+  is_vat_invoice?: boolean;
+}
+
+// A VAT invoice is generated FROM an existing completed sale (marked
+// is_vat_invoice at checkout — see CreateSalePayload/CompleteHeldSalePayload)
+// — this is the "generate" step: assign named tax(es) per item (for the
+// printed breakdown) and record buyer details, then allocate the invoice
+// number. It does not re-charge or change what the customer already paid.
+export interface GenerateVatInvoicePayload {
+  customer_id?: number;
+  customer_name?: string;
   buyer_vat_reg_no?: string;
   buyer_address?: string;
   buyer_phone?: string;
   delivery_date?: string;
   place_of_supply?: string;
-  notes?: string;
+  tax_mode: 'uniform' | 'per_item';
+  // Applied to every sale_item when tax_mode='uniform'.
+  uniform_tax_ids?: number[];
+  // One entry per sale_item when tax_mode='per_item'; items with no entry
+  // (or an empty tax_ids array) get no tax applied.
+  item_taxes?: Array<{ sale_item_id: number; tax_ids: number[] }>;
 }
 
 export interface AuthPayload {

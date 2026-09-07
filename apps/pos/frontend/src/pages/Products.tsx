@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
-import { Product, Category, Brand, CostHistoryEntry } from '../types';
+import { Product, Category, Brand, CostHistoryEntry, KitchenStation } from '../types';
 import { useToastStore } from '../store/toastStore';
 import { useSettingsStore } from '../store/settingsStore';
 import api from '../services/api';
@@ -21,10 +21,11 @@ const EMPTY: Partial<Product> = {
 export default function Products() {
   const t = useT();
   const toast = useToastStore();
-  const { hasFeature } = useSettingsStore();
+  const { hasFeature, settings } = useSettingsStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [stations, setStations] = useState<KitchenStation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -52,7 +53,10 @@ export default function Products() {
   useEffect(() => {
     api.get('/products/categories').then(r => setCategories(r.data.data));
     api.get('/products/brands').then(r => setBrands(r.data.data));
-  }, []);
+    if (hasFeature('kot_printing') && settings?.restaurant_mode_enabled) {
+      api.get('/kitchen-stations').then(r => setStations(r.data.data)).catch(() => {});
+    }
+  }, [hasFeature, settings?.restaurant_mode_enabled]);
 
   const openCreate = () => { setEditProduct(EMPTY); setIsEditing(false); setCustomUnit(false); setCostHistory([]); setModalOpen(true); };
   const openEdit = (p: Product) => {
@@ -255,6 +259,15 @@ export default function Products() {
               </button>
             </div>
           </div>
+          {hasFeature('kot_printing') && settings?.restaurant_mode_enabled && (
+            <div>
+              <label className="label">Kitchen Station</label>
+              <select className="input" value={editProduct.station_id || ''} onChange={(e) => setEditProduct(p => ({ ...p, station_id: parseInt(e.target.value) || undefined }))}>
+                <option value="">No station (receipt printer only)</option>
+                {stations.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="label">{t.products_unit_type}</label>
             <select
