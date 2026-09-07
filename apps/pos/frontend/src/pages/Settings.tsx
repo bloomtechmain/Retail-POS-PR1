@@ -22,10 +22,13 @@ const EMPTY: BusinessProfileValue = {
   currency_symbol: '$',
 };
 
+type SettingsSection = 'general' | 'profile' | 'security' | 'mode' | 'printing' | 'terminals' | 'tax';
+
 export default function SettingsPage() {
   const toast = useToastStore();
   const { settings, setSettings, plans, fetchPlans, hasFeature } = useSettingsStore();
   const { user, setUser, sandbox, setToken } = useAuthStore();
+  const [section, setSection] = useState<SettingsSection>('general');
   const [profile, setProfile] = useState<BusinessProfileValue>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -178,169 +181,217 @@ export default function SettingsPage() {
 
   if (loading) return <PageLoader />;
 
+  const showMode = hasFeature('restaurant_mode');
+  const showKitchen = hasFeature('kot_printing') && settings?.restaurant_mode_enabled;
+  const showTerminals = hasFeature('multi_terminal');
+  const showTax = hasFeature('vat_invoice');
+
+  const navItems: Array<{ key: SettingsSection; label: string; icon: string }> = [
+    { key: 'general', label: 'General', icon: '⚙️' },
+    { key: 'profile', label: 'Business Profile', icon: '🏬' },
+    { key: 'security', label: 'Login & Security', icon: '🔒' },
+    ...(showMode ? [{ key: 'mode' as const, label: 'Operating Mode', icon: '🍽️' }] : []),
+    { key: 'printing', label: 'Printing', icon: '🖨️' },
+    ...(showTerminals ? [{ key: 'terminals' as const, label: 'Multi-Terminal', icon: '🖥️' }] : []),
+    ...(showTax ? [{ key: 'tax' as const, label: 'Tax & VAT', icon: '🧾' }] : []),
+  ];
+
   return (
-    <PageContainer className="max-w-2xl mx-auto">
+    <PageContainer className="max-w-6xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-surface-900">Business Settings</h1>
-        <p className="text-surface-500 text-sm mt-1">Update your shop name, logo, contact details, and currency.</p>
+        <h1 className="text-2xl font-bold text-surface-900">Settings</h1>
+        <p className="text-surface-500 text-sm mt-1">Manage your shop profile, login, printing, and everything else in one place.</p>
       </div>
 
-      <div className={`card p-6 mb-6 ${sandbox ? 'ring-2 ring-amber-300' : ''}`}>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h3 className="font-semibold text-surface-900">Environment</h3>
-            <p className="text-surface-500 text-sm mt-0.5">
-              {sandbox
-                ? 'You are in the sandbox — sample data only, safe to experiment with.'
-                : 'You are on your live account. Switch to a sandbox to learn the system with sample data, without touching anything real.'}
-            </p>
-          </div>
-          <button
-            className={sandbox ? 'btn-primary' : 'btn-secondary'}
-            disabled={switchingEnv}
-            onClick={switchEnvironment}
-          >
-            {switchingEnv ? 'Switching...' : sandbox ? 'Switch to Live Data' : 'Switch to Sandbox'}
-          </button>
-        </div>
-      </div>
-
-      {hasFeature('restaurant_mode') && (
-        <div className={`card p-6 mb-6 ${settings?.restaurant_mode_enabled ? 'ring-2 ring-primary-300' : ''}`}>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="font-semibold text-surface-900">Operating Mode</h3>
-              <p className="text-surface-500 text-sm mt-0.5">
-                {settings?.restaurant_mode_enabled
-                  ? 'This till is in Restaurant Mode — every sale is a dine-in or takeaway order. Regular retail checkout is off.'
-                  : 'This till is in regular POS Mode — plain retail checkout. Switch to Restaurant Mode for tables, dine-in/takeaway, and kitchen tickets.'}
-              </p>
-            </div>
+      <div className="flex flex-col md:flex-row gap-6 items-start">
+        {/* Section nav */}
+        <nav className="w-full md:w-56 shrink-0 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-1 md:pb-0 md:sticky md:top-6">
+          {navItems.map((item) => (
             <button
-              className={settings?.restaurant_mode_enabled ? 'btn-secondary' : 'btn-primary'}
-              disabled={switchingMode}
-              onClick={toggleRestaurantMode}
+              key={item.key}
+              onClick={() => setSection(item.key)}
+              className={`shrink-0 flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-sm font-medium text-left transition-colors whitespace-nowrap ${
+                section === item.key
+                  ? 'bg-primary-50 text-primary-700 border border-primary-200'
+                  : 'text-surface-600 hover:bg-surface-100 border border-transparent'
+              }`}
             >
-              {switchingMode ? 'Switching...' : settings?.restaurant_mode_enabled ? 'Switch to POS Mode' : 'Switch to Restaurant Mode'}
+              <span className="text-base leading-none">{item.icon}</span>
+              {item.label}
             </button>
-          </div>
-        </div>
-      )}
+          ))}
+        </nav>
 
-      <div className="card p-6 space-y-6">
-        <BusinessProfileForm value={profile} onChange={setProfile} />
+        {/* Section content */}
+        <div className="flex-1 min-w-0 w-full space-y-6">
+          {section === 'general' && (
+            <>
+              <div className={`card p-6 ${sandbox ? 'ring-2 ring-amber-300' : ''}`}>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-semibold text-surface-900">Environment</h3>
+                    <p className="text-surface-500 text-sm mt-0.5">
+                      {sandbox
+                        ? 'You are in the sandbox — sample data only, safe to experiment with.'
+                        : 'You are on your live account. Switch to a sandbox to learn the system with sample data, without touching anything real.'}
+                    </p>
+                  </div>
+                  <button
+                    className={sandbox ? 'btn-primary' : 'btn-secondary'}
+                    disabled={switchingEnv}
+                    onClick={switchEnvironment}
+                  >
+                    {switchingEnv ? 'Switching...' : sandbox ? 'Switch to Live Data' : 'Switch to Sandbox'}
+                  </button>
+                </div>
+              </div>
 
-        <div className="flex justify-end pt-2">
-          <button className="btn-primary" disabled={saving} onClick={save}>
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </div>
+              <div className="card p-6">
+                <h3 className="font-semibold text-surface-900">Subscription Plan</h3>
+                <p className="text-surface-500 text-sm mt-0.5 mb-3">
+                  Your package is set by your agent — contact them to upgrade or change it.
+                </p>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 text-primary-700 text-sm font-medium">
+                  {plans.find((p) => p.key === settings?.plan_key)?.name || settings?.plan_key}
+                </div>
+              </div>
+            </>
+          )}
 
-      <div className="card p-6 mt-6">
-        <div className="mb-4">
-          <h3 className="font-semibold text-surface-900">Login &amp; Security</h3>
-          <p className="text-surface-500 text-sm mt-0.5">Change the email or password you log in with.</p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <label className="label">Login Email</label>
-            <input
-              type="email"
-              className="input"
-              value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="label">Current Password</label>
-            <input
-              type="password"
-              className="input"
-              placeholder="Required to set a new password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">New Password</label>
-            <input
-              type="password"
-              className="input"
-              placeholder="Leave blank to keep current"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Confirm New Password</label>
-            <input
-              type="password"
-              className="input"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex justify-end pt-4">
-          <button className="btn-primary" disabled={savingCredentials} onClick={saveCredentials}>
-            {savingCredentials ? 'Saving...' : 'Update Login Details'}
-          </button>
-        </div>
-      </div>
-
-      <div className="card p-6 mt-6">
-        <h3 className="font-semibold text-surface-900">Subscription Plan</h3>
-        <p className="text-surface-500 text-sm mt-0.5 mb-3">
-          Your package is set by your agent — contact them to upgrade or change it.
-        </p>
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 text-primary-700 text-sm font-medium">
-          {plans.find((p) => p.key === settings?.plan_key)?.name || settings?.plan_key}
-        </div>
-      </div>
-
-      <PrintAgentCard />
-
-      {hasFeature('kot_printing') && settings?.restaurant_mode_enabled && (
-        <div className="card p-6 mt-6">
-          <KitchenStationsCard />
-        </div>
-      )}
-
-      {hasFeature('multi_terminal') && (
-        <div className="card p-6 mt-6">
-          <MultiTerminalCard />
-        </div>
-      )}
-
-      {/* Everything VAT/tax-related lives in this one place — the TIN
-          number a Tax Invoice needs, and the named tax rates (VAT, NBT,
-          etc.) available when generating one. */}
-      {hasFeature('vat_invoice') && (
-        <div className="card p-6 mt-6 space-y-6">
-          <div>
-            <h3 className="font-semibold text-surface-900">VAT &amp; Tax Settings</h3>
-            <p className="text-surface-500 text-sm mt-0.5">Your TIN and tax rates, used on every generated Tax Invoice.</p>
-          </div>
-          <div>
-            <label className="label">TIN Number <span className="font-normal text-surface-400">(Taxpayer Identification Number)</span></label>
-            <input
-              className="input font-mono max-w-xs"
-              value={vatRegNumber}
-              onChange={(e) => setVatRegNumber(e.target.value)}
-              placeholder="e.g. TN2342"
-            />
-            <div className="flex justify-end mt-2">
-              <button className="btn-primary btn-sm" disabled={savingVat} onClick={saveVatSettings}>
-                {savingVat ? 'Saving...' : 'Save'}
-              </button>
+          {section === 'profile' && (
+            <div className="card p-6 space-y-6">
+              <BusinessProfileForm value={profile} onChange={setProfile} />
+              <div className="flex justify-end pt-2">
+                <button className="btn-primary" disabled={saving} onClick={save}>
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="border-t border-surface-200 pt-6">
-            <TaxRatesManager />
-          </div>
+          )}
+
+          {section === 'security' && (
+            <div className="card p-6">
+              <div className="mb-4">
+                <h3 className="font-semibold text-surface-900">Login &amp; Security</h3>
+                <p className="text-surface-500 text-sm mt-0.5">Change the email or password you log in with.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="label">Login Email</label>
+                  <input
+                    type="email"
+                    className="input"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label">Current Password</label>
+                  <input
+                    type="password"
+                    className="input"
+                    placeholder="Required to set a new password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">New Password</label>
+                  <input
+                    type="password"
+                    className="input"
+                    placeholder="Leave blank to keep current"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Confirm New Password</label>
+                  <input
+                    type="password"
+                    className="input"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end pt-4">
+                <button className="btn-primary" disabled={savingCredentials} onClick={saveCredentials}>
+                  {savingCredentials ? 'Saving...' : 'Update Login Details'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {section === 'mode' && showMode && (
+            <div className={`card p-6 ${settings?.restaurant_mode_enabled ? 'ring-2 ring-primary-300' : ''}`}>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-semibold text-surface-900">Operating Mode</h3>
+                  <p className="text-surface-500 text-sm mt-0.5">
+                    {settings?.restaurant_mode_enabled
+                      ? 'This till is in Restaurant Mode — every sale is a dine-in or takeaway order. Regular retail checkout is off.'
+                      : 'This till is in regular POS Mode — plain retail checkout. Switch to Restaurant Mode for tables, dine-in/takeaway, and kitchen tickets.'}
+                  </p>
+                </div>
+                <button
+                  className={settings?.restaurant_mode_enabled ? 'btn-secondary' : 'btn-primary'}
+                  disabled={switchingMode}
+                  onClick={toggleRestaurantMode}
+                >
+                  {switchingMode ? 'Switching...' : settings?.restaurant_mode_enabled ? 'Switch to POS Mode' : 'Switch to Restaurant Mode'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {section === 'printing' && (
+            <>
+              <PrintAgentCard />
+              {showKitchen && (
+                <div className="card p-6">
+                  <KitchenStationsCard />
+                </div>
+              )}
+            </>
+          )}
+
+          {section === 'terminals' && showTerminals && (
+            <div className="card p-6">
+              <MultiTerminalCard />
+            </div>
+          )}
+
+          {/* Everything VAT/tax-related lives in this one place — the TIN
+              number a Tax Invoice needs, and the named tax rates (VAT, NBT,
+              etc.) available when generating one. */}
+          {section === 'tax' && showTax && (
+            <div className="card p-6 space-y-6">
+              <div>
+                <h3 className="font-semibold text-surface-900">VAT &amp; Tax Settings</h3>
+                <p className="text-surface-500 text-sm mt-0.5">Your TIN and tax rates, used on every generated Tax Invoice.</p>
+              </div>
+              <div>
+                <label className="label">TIN Number <span className="font-normal text-surface-400">(Taxpayer Identification Number)</span></label>
+                <input
+                  className="input font-mono max-w-xs"
+                  value={vatRegNumber}
+                  onChange={(e) => setVatRegNumber(e.target.value)}
+                  placeholder="e.g. TN2342"
+                />
+                <div className="flex justify-end mt-2">
+                  <button className="btn-primary btn-sm" disabled={savingVat} onClick={saveVatSettings}>
+                    {savingVat ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+              <div className="border-t border-surface-200 pt-6">
+                <TaxRatesManager />
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </PageContainer>
   );
 }

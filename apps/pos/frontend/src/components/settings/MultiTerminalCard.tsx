@@ -65,7 +65,21 @@ export function MultiTerminalCard() {
     }
   };
 
-  if (!window.electronTerminalAPI || loading) return null;
+  if (!window.electronTerminalAPI) {
+    return (
+      <div>
+        <h3 className="font-semibold text-surface-900">Multi-Terminal</h3>
+        <p className="text-surface-500 text-sm mt-2">
+          Multi-Terminal networking (pairing several tills over LAN to one Server machine) is a feature of the
+          offline desktop app, not the web/browser version. Install and open the desktop app to set it up.
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return <p className="text-sm text-surface-400">Loading...</p>;
+  }
 
   if (roleInfo) {
     return (
