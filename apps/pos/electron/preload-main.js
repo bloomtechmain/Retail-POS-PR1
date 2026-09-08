@@ -18,3 +18,14 @@ contextBridge.exposeInMainWorld('electronTerminalAPI', {
   disconnect: () => ipcRenderer.invoke('terminal:disconnect'),
   getServerInfo: () => ipcRenderer.invoke('terminal:get-server-info'),
 });
+
+contextBridge.exposeInMainWorld('electronBackupAPI', {
+  chooseFolder: () => ipcRenderer.invoke('backup:choose-folder'),
+  chooseRestoreFolder: () => ipcRenderer.invoke('backup:choose-restore-folder'),
+  getConfig: () => ipcRenderer.invoke('backup:get-config'),
+  saveConfig: (config) => ipcRenderer.invoke('backup:save-config', config),
+  runNow: (folder) => ipcRenderer.invoke('backup:run-now', folder),
+  list: (folder) => ipcRenderer.invoke('backup:list', folder),
+  restore: (backupFolderPath) => ipcRenderer.invoke('backup:restore', backupFolderPath),
+  openFolder: (folder) => ipcRenderer.invoke('backup:open-folder', folder),
+});

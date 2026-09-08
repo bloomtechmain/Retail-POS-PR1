@@ -87,6 +87,12 @@ export function Sidebar({ mobileOpen, desktopOpen, onMobileClose, onDesktopToggl
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     )},
+    { path: '/backup', label: t.nav_backup, roles: ['admin'], icon: (
+      <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 7a2 2 0 012-2h3l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V7z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 10v6m0 0l-2.5-2.5M12 16l2.5-2.5" />
+      </svg>
+    )},
   ];
 
   const visibleItems = navItems.filter((item) => {

@@ -21,6 +21,11 @@ export const GENERIC_DEFAULTS: Settings = {
   plan_key: DEFAULT_PLAN_KEY,
   setup_completed: false,
   restaurant_mode_enabled: false,
+  backup_schedule_enabled: false,
+  backup_schedule_frequency: 'daily',
+  backup_schedule_time: '23:00',
+  backup_schedule_day_of_week: 0,
+  backup_schedule_day_of_month: 1,
   created_at: new Date(0),
   updated_at: new Date(0),
 };

@@ -53,6 +53,12 @@ export interface Settings {
   plan_key: string;
   setup_completed: boolean;
   restaurant_mode_enabled: boolean;
+  backup_schedule_enabled: boolean;
+  backup_schedule_frequency: 'daily' | 'weekly' | 'monthly';
+  backup_schedule_time: string;
+  backup_schedule_day_of_week: number;
+  backup_schedule_day_of_month: number;
+  backup_last_run_at?: Date | null;
   created_at: Date;
   updated_at: Date;
 }

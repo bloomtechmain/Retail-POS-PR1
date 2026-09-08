@@ -404,6 +404,15 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     -- restaurant_mode FeatureKey on purpose — an eligible-tier shop that's
     -- pure retail can leave this off.
     restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Server-side automatic backup schedule (hosted only — see backup.service.ts).
+    -- Runs inside the always-on backend process itself, not client-side, since
+    -- a browser tab isn't guaranteed to stay open.
+    backup_schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    backup_schedule_frequency VARCHAR(10) NOT NULL DEFAULT 'daily',
+    backup_schedule_time VARCHAR(5) NOT NULL DEFAULT '23:00',
+    backup_schedule_day_of_week INTEGER NOT NULL DEFAULT 0,
+    backup_schedule_day_of_month INTEGER NOT NULL DEFAULT 1,
+    backup_last_run_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT settings_singleton CHECK (id = 1)

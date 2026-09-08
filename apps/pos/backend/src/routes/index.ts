@@ -17,6 +17,7 @@ import settingsRoutes from './settings.routes';
 import taxRateRoutes from './taxRate.routes';
 import vatInvoiceRoutes from './vatInvoice.routes';
 import tenantRoutes from './tenant.routes';
+import backupRoutes from './backup.routes';
 
 const router = Router();
 
@@ -38,5 +39,6 @@ router.use('/settings', settingsRoutes);
 router.use('/tax-rates', taxRateRoutes);
 router.use('/vat-invoices', vatInvoiceRoutes);
 router.use('/tenants', tenantRoutes);
+router.use('/backup', backupRoutes);
 
 export default router;

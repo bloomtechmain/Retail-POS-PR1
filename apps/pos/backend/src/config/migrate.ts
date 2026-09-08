@@ -278,6 +278,12 @@ export const runMigrations = async (): Promise<void> => {
       `ALTER TABLE settings ADD COLUMN IF NOT EXISTS restaurant_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
       `ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_vat_customer BOOLEAN NOT NULL DEFAULT FALSE`,
       `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_reg_no VARCHAR(100)`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_frequency VARCHAR(10) NOT NULL DEFAULT 'daily'`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_time VARCHAR(5) NOT NULL DEFAULT '23:00'`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_day_of_week INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_schedule_day_of_month INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS backup_last_run_at TIMESTAMP`,
       ];
       for (const sql of alterations) {
         await query(sql, []);

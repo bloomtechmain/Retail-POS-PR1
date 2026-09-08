@@ -8,6 +8,7 @@ import routes from './routes';
 import terminalPairingRoutes from './routes/terminalPairing.routes';
 import { errorHandler, notFound } from './middleware/error';
 import { runMigrations } from './config/migrate';
+import { checkAndRunDueBackups } from './services/backup.service';
 
 dotenv.config();
 
@@ -79,11 +80,23 @@ app.use(notFound);
 app.use(errorHandler);
 
 // ── Start ───────────────────────────────────────────────────────────────────
+// Multi-tenant scheduled backups only make sense on the hosted backend —
+// Electron's flat single-tenant DB has no `public.tenants` registry to
+// iterate at all (see checkAndRunDueBackups). A 60s tick is cheap: it's a
+// no-op unless some tenant's schedule is actually due right now.
+const BACKUP_SCHEDULE_CHECK_INTERVAL_MS = 60 * 1000;
+
 const start = async () => {
   // Auto-migrate on Railway/production only.
   // Electron handles its own migrations in main.js.
   if (!isElectron && isProduction) {
     await runMigrations();
+  }
+
+  if (!isElectron) {
+    setInterval(() => {
+      checkAndRunDueBackups().catch((err) => console.warn('[backup] Schedule check failed:', err.message));
+    }, BACKUP_SCHEDULE_CHECK_INTERVAL_MS);
   }
 
   app.listen(PORT, () => {

@@ -16,6 +16,7 @@ import Users from './pages/Users';
 import Customers from './pages/Customers';
 import Setup from './pages/Setup';
 import SettingsPage from './pages/Settings';
+import BackupPage from './pages/Backup';
 import VatInvoice from './pages/VatInvoice';
 import TableGrid from './pages/TableGrid';
 
@@ -86,6 +87,7 @@ export default function App() {
         </Route>
         <Route element={<ProtectedRoute roles={['admin']} />}>
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/backup" element={<BackupPage />} />
         </Route>
 
         {/* Protected — Admin only, no sidebar/nav chrome (first-run setup) */}

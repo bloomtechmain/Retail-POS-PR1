@@ -8,7 +8,7 @@ dotenv.config();
 // provisioning ("tenant_<id>") or a signature-verified JWT, but SET
 // search_path can't be parameterized like a normal query, so validate the
 // shape before ever interpolating it into SQL text.
-const isSafeSchemaName = (name: string): boolean => /^[a-z_][a-z0-9_]*$/.test(name);
+export const isSafeSchemaName = (name: string): boolean => /^[a-z_][a-z0-9_]*$/.test(name);
 
 const setSearchPath = async (client: PoolClient, schema: string) => {
   if (!isSafeSchemaName(schema)) {

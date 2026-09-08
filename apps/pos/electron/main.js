@@ -10,6 +10,7 @@ const { execSync } = require('child_process');
 const { checkLicense, activateLicense, getMachineFingerprint } = require('./license');
 
 const BACKEND_PORT = 5000;
+const PG_PORT = 5435;
 const APP_VERSION = app.getVersion();
 
 // Same default shown on the activation screen — used for the background
@@ -38,6 +39,8 @@ let backendProcess = null;
 let pgInstance = null;
 let backendExitInfo = null; // set once backendProcess exits, read by waitForBackend for diagnostics
 let revocationCheckInterval = null;
+let pgBinaryPath = null; // set once in startPostgres(), reused to restart postgres after a backup/restore
+let backupScheduleInterval = null;
 
 // Best-effort re-verification of the currently stored key against the
 // license server — this is the ONLY point where an already-activated
@@ -124,7 +127,10 @@ ipcMain.on('activation-complete', (_event, presetCredentials) => {
       console.error('[Main] Failed to write preset credentials:', err);
     }
   }
-  startApp().then(startRevocationChecks).catch((err) => {
+  startApp().then(() => {
+    startRevocationChecks();
+    startBackupScheduler();
+  }).catch((err) => {
     dialog.showErrorBox('Startup Error', err.message);
     app.quit();
   });
@@ -390,6 +396,291 @@ ipcMain.handle('printer:print', async (_event, html, target) => {
   }
 });
 
+// ─── Backup & Restore ─────────────────────────────────────────────────────────
+// Physical backup: briefly stop the embedded postgres server and copy its
+// whole data directory, rather than a logical pg_dump — the Windows
+// embedded-postgres distribution bundles only postgres.exe/pg_ctl.exe/
+// initdb.exe, no pg_dump/pg_restore/psql, so shelling out to those isn't an
+// option without bundling a separate ~20MB client-tools download. A physical
+// copy is also strictly more faithful (byte-identical data/indexes/
+// sequences) and needs no FK-ordering or sequence-reset logic on restore.
+const BACKUP_FOLDER_PREFIX = 'bloomswiftpos-backup-';
+
+function getBackupConfigPath() {
+  return path.join(app.getPath('userData'), 'backup-config.json');
+}
+
+function readBackupConfig() {
+  const defaults = { enabled: false, frequency: 'daily', time: '23:00', dayOfWeek: 0, dayOfMonth: 1, folder: null, lastRunAt: null };
+  try {
+    const raw = fs.readFileSync(getBackupConfigPath(), 'utf8');
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: Boolean(parsed.enabled),
+      frequency: ['daily', 'weekly', 'monthly'].includes(parsed.frequency) ? parsed.frequency : defaults.frequency,
+      time: typeof parsed.time === 'string' ? parsed.time : defaults.time,
+      dayOfWeek: Number.isInteger(parsed.dayOfWeek) ? parsed.dayOfWeek : defaults.dayOfWeek,
+      dayOfMonth: Number.isInteger(parsed.dayOfMonth) ? parsed.dayOfMonth : defaults.dayOfMonth,
+      folder: typeof parsed.folder === 'string' ? parsed.folder : defaults.folder,
+      lastRunAt: typeof parsed.lastRunAt === 'string' ? parsed.lastRunAt : defaults.lastRunAt,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function writeBackupConfig(config) {
+  fs.mkdirSync(app.getPath('userData'), { recursive: true });
+  fs.writeFileSync(getBackupConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+}
+
+async function stopPostgresForMaintenance() {
+  if (!pgInstance) return;
+  await pgInstance.stop().catch(() => {});
+  // pg_ctl stop can return slightly before the OS actually releases the
+  // socket — poll until the port is free so the copy below never races a
+  // still-shutting-down postgres.
+  for (let i = 0; i < 20; i++) {
+    if (!(await checkTcpPort(PG_PORT))) return;
+    await delay(300);
+  }
+}
+
+async function restartPostgresAfterMaintenance() {
+  if (!pgBinaryPath) {
+    const { postgres } = await import('@embedded-postgres/windows-x64');
+    pgBinaryPath = postgres;
+  }
+  const pgDataDir = getPgDataDir();
+  const pidFile = path.join(pgDataDir, 'postmaster.pid');
+  if (fs.existsSync(pidFile)) fs.rmSync(pidFile, { force: true });
+  const pgProc = await spawnPostgresAndWait(pgBinaryPath, pgDataDir, PG_PORT);
+  pgInstance.process = pgProc;
+  await waitForPostgresQueries(pgInstance);
+}
+
+function formatBackupTimestamp(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+}
+
+function dirSizeBytes(dir) {
+  let total = 0;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return 0; }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += dirSizeBytes(full);
+    else { try { total += fs.statSync(full).size; } catch {} }
+  }
+  return total;
+}
+
+// Backups only make sense on a machine with a local database — a Terminal's
+// data lives entirely on its Server (see readRoleConfig's big comment above).
+function assertBackupCapableMachine() {
+  if (readRoleConfig()) {
+    throw new Error('Backup and restore are not available on a Terminal — its data lives on the Server machine.');
+  }
+}
+
+async function runBackup(destFolder) {
+  assertBackupCapableMachine();
+  if (!destFolder) throw new Error('No backup folder selected.');
+  if (!pgInstance) throw new Error('Database is not running.');
+
+  const backupDir = path.join(destFolder, `${BACKUP_FOLDER_PREFIX}${formatBackupTimestamp(new Date())}`);
+  fs.mkdirSync(backupDir, { recursive: true });
+
+  await stopPostgresForMaintenance();
+  try {
+    fs.cpSync(getPgDataDir(), path.join(backupDir, 'pgdata'), { recursive: true });
+    fs.writeFileSync(path.join(backupDir, 'backup-info.json'), JSON.stringify({
+      createdAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
+    }, null, 2), 'utf8');
+  } finally {
+    await restartPostgresAfterMaintenance();
+  }
+
+  return { path: backupDir, sizeBytes: dirSizeBytes(backupDir) };
+}
+
+function listBackups(folder) {
+  if (!folder || !fs.existsSync(folder)) return [];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(folder, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name.startsWith(BACKUP_FOLDER_PREFIX));
+  } catch { return []; }
+
+  const result = entries.map((e) => {
+    const full = path.join(folder, e.name);
+    let createdAt = null;
+    let appVersion = null;
+    try {
+      const info = JSON.parse(fs.readFileSync(path.join(full, 'backup-info.json'), 'utf8'));
+      createdAt = info.createdAt || null;
+      appVersion = info.appVersion || null;
+    } catch {
+      try { createdAt = fs.statSync(full).birthtime.toISOString(); } catch {}
+    }
+    return { name: e.name, path: full, createdAt, appVersion, sizeBytes: dirSizeBytes(full) };
+  });
+  result.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return result;
+}
+
+async function runRestore(backupFolderPath) {
+  assertBackupCapableMachine();
+  const srcPgData = path.join(backupFolderPath, 'pgdata');
+  if (!fs.existsSync(path.join(srcPgData, 'PG_VERSION'))) {
+    throw new Error('This does not look like a valid BloomSwiftPOS backup folder.');
+  }
+
+  if (backendProcess) {
+    backendProcess.kill('SIGTERM');
+    backendProcess = null;
+  }
+  await stopPostgresForMaintenance();
+
+  const pgDataDir = getPgDataDir();
+  // Move the current data aside rather than deleting it outright — if the
+  // copy-in below fails partway (disk full, bad backup folder), the previous
+  // data is still recoverable by hand instead of gone.
+  const safetyDir = `${pgDataDir}.pre-restore-${formatBackupTimestamp(new Date())}`;
+  if (fs.existsSync(pgDataDir)) fs.renameSync(pgDataDir, safetyDir);
+  fs.cpSync(srcPgData, pgDataDir, { recursive: true });
+
+  // Relaunch rather than resuming in-place — this runs the exact same
+  // startPostgres()/startBackend() bootstrap (including runMigrations(), so
+  // a backup taken on an older app version is brought up to the current
+  // schema automatically) instead of trying to hand-resume live state.
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 300);
+}
+
+// Distinguishes "not due yet" from "overdue — catch up regardless of the
+// clock" so a schedule set for e.g. 11pm still runs the next time the app is
+// opened even if that's days later and well before 11pm (a POS is typically
+// only open during business hours, not 24/7) — a plain "did it already run
+// today" check would otherwise wait for that exact time-of-day forever on a
+// shop that always closes before it.
+function isBackupDue(config, now) {
+  if (!config.enabled || !config.folder) return false;
+
+  const [h, m] = String(config.time || '23:00').split(':').map(Number);
+  const todayAtTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h || 0, m || 0, 0, 0);
+
+  if (!config.lastRunAt) {
+    if (now < todayAtTime) return false;
+    if (config.frequency === 'weekly' && now.getDay() !== config.dayOfWeek) return false;
+    if (config.frequency === 'monthly' && now.getDate() !== config.dayOfMonth) return false;
+    return true;
+  }
+
+  const last = new Date(config.lastRunAt);
+  const lastMidnight = new Date(last.getFullYear(), last.getMonth(), last.getDate());
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const daysSinceLastRun = Math.round((todayMidnight - lastMidnight) / 86400000);
+
+  const minGapDays = config.frequency === 'daily' ? 1 : config.frequency === 'weekly' ? 7 : 28;
+  if (daysSinceLastRun < minGapDays) return false;
+  if (daysSinceLastRun > minGapDays) return true;
+
+  if (now < todayAtTime) return false;
+  if (config.frequency === 'weekly' && now.getDay() !== config.dayOfWeek) return false;
+  if (config.frequency === 'monthly' && now.getDate() !== config.dayOfMonth) return false;
+  return true;
+}
+
+function startBackupScheduler() {
+  const tick = async () => {
+    if (readRoleConfig()) return;
+    const config = readBackupConfig();
+    if (!isBackupDue(config, new Date())) return;
+    try {
+      await runBackup(config.folder);
+      writeBackupConfig({ ...config, lastRunAt: new Date().toISOString() });
+    } catch (err) {
+      console.warn('[Main] Scheduled backup failed:', err.message);
+    }
+  };
+  tick();
+  backupScheduleInterval = setInterval(tick, 60 * 1000);
+}
+
+ipcMain.handle('backup:choose-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, { properties: ['openDirectory', 'createDirectory'] });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  return { canceled: false, path: result.filePaths[0] };
+});
+
+ipcMain.handle('backup:choose-restore-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, { properties: ['openDirectory'] });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  return { canceled: false, path: result.filePaths[0] };
+});
+
+ipcMain.handle('backup:get-config', () => readBackupConfig());
+
+ipcMain.handle('backup:save-config', (_event, config) => {
+  const current = readBackupConfig();
+  const next = {
+    ...current,
+    enabled: Boolean(config && config.enabled),
+    frequency: config && ['daily', 'weekly', 'monthly'].includes(config.frequency) ? config.frequency : current.frequency,
+    time: config && typeof config.time === 'string' ? config.time : current.time,
+    dayOfWeek: config && Number.isInteger(config.dayOfWeek) ? config.dayOfWeek : current.dayOfWeek,
+    dayOfMonth: config && Number.isInteger(config.dayOfMonth) ? config.dayOfMonth : current.dayOfMonth,
+    folder: config && typeof config.folder === 'string' ? config.folder : current.folder,
+  };
+  writeBackupConfig(next);
+  return next;
+});
+
+ipcMain.handle('backup:run-now', async (_event, folder) => {
+  try {
+    const result = await runBackup(folder);
+    return { success: true, ...result };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('backup:list', (_event, folder) => {
+  try {
+    return { success: true, backups: listBackups(folder) };
+  } catch (err) {
+    return { success: false, error: err.message, backups: [] };
+  }
+});
+
+ipcMain.handle('backup:restore', async (_event, backupFolderPath) => {
+  const choice = dialog.showMessageBoxSync(mainWindow || undefined, {
+    type: 'warning',
+    title: 'Restore Backup',
+    message: 'This will replace all current data with the selected backup.',
+    detail: 'Everything added or changed since that backup was made will be lost. The app will restart to finish restoring. This cannot be undone.',
+    buttons: ['Cancel', 'Restore and Restart'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (choice !== 1) return { success: false, canceled: true };
+  try {
+    await runRestore(backupFolderPath);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('backup:open-folder', (_event, folder) => {
+  if (folder && fs.existsSync(folder)) shell.openPath(folder);
+});
+
 // ─── App Ready ────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   // Terminal role short-circuits everything else — no local Postgres, no
@@ -416,6 +707,7 @@ app.whenReady().then(async () => {
   } else {
     await startApp();
     startRevocationChecks();
+    startBackupScheduler();
   }
 });
 
@@ -619,9 +911,12 @@ async function startTerminalMode(role) {
 }
 
 // ─── Embedded PostgreSQL ─────────────────────────────────────────────────────
+function getPgDataDir() {
+  return path.join(app.getPath('userData'), 'pgdata');
+}
+
 async function startPostgres() {
-  const pgDataDir = path.join(app.getPath('userData'), 'pgdata');
-  const PG_PORT = 5435;
+  const pgDataDir = getPgDataDir();
 
   try {
     const { default: EmbeddedPostgres } = await import('embedded-postgres');
@@ -676,6 +971,7 @@ async function startPostgres() {
       // stderr — unreliable in packaged Electron on Windows (no real console,
       // so piped stdio behaves differently). Polling the TCP port is reliable.
       const { postgres: pgBinary } = await import('@embedded-postgres/windows-x64');
+      pgBinaryPath = pgBinary; // reused by restartPostgresAfterMaintenance()
       console.log('[Main] Starting PostgreSQL...');
       const pgProc = await spawnPostgresAndWait(pgBinary, pgDataDir, PG_PORT);
       pgInstance.process = pgProc;  // Stored so cleanup() can kill it
@@ -1170,6 +1466,10 @@ function cleanup() {
   if (revocationCheckInterval) {
     clearInterval(revocationCheckInterval);
     revocationCheckInterval = null;
+  }
+  if (backupScheduleInterval) {
+    clearInterval(backupScheduleInterval);
+    backupScheduleInterval = null;
   }
   if (backendProcess) {
     backendProcess.kill('SIGTERM');

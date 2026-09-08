@@ -15,6 +15,7 @@ const en = {
   nav_users: 'Users',
   nav_customers: 'Customers',
   nav_settings: 'Settings',
+  nav_backup: 'Backup',
 
   // ── Common ───────────────────────────────────────────────────────────────────
   save: 'Save',
@@ -144,6 +145,8 @@ const en = {
   products_cost_price: 'Cost Price',
   products_unit_type: 'Unit Type',
   products_opening_stock: 'Opening Stock',
+  products_current_stock: 'Current Stock',
+  products_stock_edit_hint: 'To change stock for an existing product, use Inventory → Adjust — adjustments are recorded in the stock history.',
   products_low_stock_alert: 'Low Stock Alert',
   products_tax_rate: 'Tax Rate (%)',
   products_allow_negative: 'Allow negative stock',
@@ -364,6 +367,7 @@ const si: typeof en = {
   nav_users: 'පරිශීලකයින්',
   nav_customers: 'ගනුදෙනුකරුවන්',
   nav_settings: 'සැකසුම්',
+  nav_backup: 'උපස්ථ',
 
   // Common
   save: 'සුරකින්න',
@@ -493,6 +497,8 @@ const si: typeof en = {
   products_cost_price: 'පිරිවැය',
   products_unit_type: 'ඒකක වර්ගය',
   products_opening_stock: 'ආරම්භක තොගය',
+  products_current_stock: 'වත්මන් තොගය',
+  products_stock_edit_hint: 'දැනට පවතින නිෂ්පාදනයක තොගය වෙනස් කිරීමට, ඉන්වෙන්ටරි → සකස් කරන්න භාවිතා කරන්න — සකස් කිරීම් තොග ඉතිහාසයේ සටහන් වේ.',
   products_low_stock_alert: 'අඩු තොග අනතුරු ඇඟවීම',
   products_tax_rate: 'බදු අනුපාතය (%)',
   products_allow_negative: 'සෘණ තොගයට ඉඩ දෙන්න',
