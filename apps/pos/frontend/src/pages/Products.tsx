@@ -318,15 +318,31 @@ export default function Products() {
             )}
           </div>
           <div>
-            <label className="label">{t.products_opening_stock} ({getUnitMeta(editProduct.unit_type).abbr})</label>
-            <input
-              type="number"
-              className="input"
-              value={editProduct.current_stock || ''}
-              onChange={(e) => setEditProduct(p => ({ ...p, current_stock: parseFloat(e.target.value) || 0 }))}
-              min="0"
-              step={getUnitMeta(editProduct.unit_type).step}
-            />
+            {isEditing ? (
+              <>
+                <label className="label">{t.products_current_stock}</label>
+                <input
+                  type="text"
+                  className="input bg-surface-50 text-surface-500"
+                  value={formatQuantity(editProduct.current_stock || 0, editProduct.unit_type)}
+                  disabled
+                  readOnly
+                />
+                <p className="text-xs text-surface-400 mt-1">{t.products_stock_edit_hint}</p>
+              </>
+            ) : (
+              <>
+                <label className="label">{t.products_opening_stock} ({getUnitMeta(editProduct.unit_type).abbr})</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={editProduct.current_stock || ''}
+                  onChange={(e) => setEditProduct(p => ({ ...p, current_stock: parseFloat(e.target.value) || 0 }))}
+                  min="0"
+                  step={getUnitMeta(editProduct.unit_type).step}
+                />
+              </>
+            )}
           </div>
           <div>
             <label className="label">{t.products_low_stock_alert}</label>
