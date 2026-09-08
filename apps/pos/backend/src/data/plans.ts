@@ -35,7 +35,7 @@ export const PLANS: Record<string, Plan> = {
     tagline: 'A single till, keep it simple',
     max_users: 1,
     max_terminals: 0,
-    features: [],
+    features: ['multi_currency'],
   },
   standard: {
     key: 'standard',
@@ -43,7 +43,7 @@ export const PLANS: Record<string, Plan> = {
     tagline: 'Growing shop, more than one cashier',
     max_users: 5,
     max_terminals: 0,
-    features: ['reports', 'users', 'promotions', 'coupons'],
+    features: ['reports', 'users', 'promotions', 'coupons', 'multi_currency'],
   },
   professional: {
     key: 'professional',
