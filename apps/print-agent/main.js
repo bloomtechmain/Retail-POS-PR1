@@ -43,9 +43,11 @@ function getConfigPath() {
 }
 
 // `printers` maps a kitchen-station id (string) to a printer name, for KOT
-// routing — separate from `defaultPrinter` (the receipt printer). Old
-// config files predate this key; reading one back always backfills
-// `printers: {}` so they never crash on the new shape.
+// routing (content-SPLITTING) — separate from `defaultPrinter` (the receipt
+// printer). `receiptCopies` is different again: named extra destinations
+// that get the exact SAME bill as the default printer (fan-out). Old
+// config files predate one or both keys; reading one back always backfills
+// `printers: {}`/`receiptCopies: []` so they never crash on the new shape.
 function readConfig() {
   try {
     const raw = fs.readFileSync(getConfigPath(), 'utf8');
@@ -53,9 +55,10 @@ function readConfig() {
     return {
       defaultPrinter: parsed.defaultPrinter || null,
       printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
+      receiptCopies: Array.isArray(parsed.receiptCopies) ? parsed.receiptCopies : [],
     };
   } catch {
-    return { defaultPrinter: null, printers: {} };
+    return { defaultPrinter: null, printers: {}, receiptCopies: [] };
   }
 }
 
@@ -171,16 +174,21 @@ function startServer() {
   expressApp.post('/config', (req, res) => {
     const defaultPrinter = (req.body && req.body.defaultPrinter) || null;
     const printers = req.body && req.body.printers && typeof req.body.printers === 'object' ? req.body.printers : {};
-    const config = { defaultPrinter, printers };
+    const receiptCopies = req.body && Array.isArray(req.body.receiptCopies)
+      ? req.body.receiptCopies.filter((c) => c && c.printerName).map((c) => ({ label: String(c.label || ''), printerName: String(c.printerName) }))
+      : [];
+    const config = { defaultPrinter, printers, receiptCopies };
     writeConfig(config);
     broadcastConfig(config);
     res.json(config);
   });
 
-  // `target` (a kitchen-station id) is optional — omitted, this resolves
-  // exactly like before (the one receipt printer). Passed, it looks up
-  // that station's printer, falling back to the default if the station
-  // has none configured yet.
+  // `target` (a kitchen-station id) is optional. Passed, this looks up
+  // that station's printer, falling back to the default if the station has
+  // none configured yet (KOT — a single, content-specific destination).
+  // Omitted, this is a normal bill print: the SAME document goes to the
+  // default printer and every configured `receiptCopies` destination at
+  // once (fan-out, e.g. a kitchen/store copy of the whole receipt).
   expressApp.post('/print', async (req, res) => {
     const html = req.body && req.body.html;
     const target = req.body && req.body.target;
@@ -188,14 +196,37 @@ function startServer() {
       res.status(400).json({ success: false, error: 'Missing html' });
       return;
     }
-    try {
-      const config = readConfig();
-      const deviceName = target ? (config.printers[target] || config.defaultPrinter) : config.defaultPrinter;
-      await printHtml(html, deviceName);
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
+    const config = readConfig();
+
+    if (target) {
+      try {
+        const deviceName = config.printers[target] || config.defaultPrinter;
+        await printHtml(html, deviceName);
+        res.json({ success: true });
+      } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+      return;
     }
+
+    const destinations = [...new Set(
+      [config.defaultPrinter, ...config.receiptCopies.map((c) => c.printerName)].filter(Boolean)
+    )];
+    if (destinations.length === 0) {
+      res.status(500).json({ success: false, error: 'No default printer configured. Open the Print Agent settings and pick a printer first.' });
+      return;
+    }
+    const results = await Promise.allSettled(destinations.map((deviceName) => printHtml(html, deviceName)));
+    const failures = results.filter((r) => r.status === 'rejected');
+    if (failures.length === results.length) {
+      res.status(500).json({ success: false, error: failures[0].reason?.message || 'Print failed' });
+      return;
+    }
+    if (failures.length > 0) {
+      res.json({ success: true, warning: `Printed, but ${failures.length} of ${results.length} printer(s) failed` });
+      return;
+    }
+    res.json({ success: true });
   });
 
   httpServer = expressApp.listen(PORT, '127.0.0.1', () => {
@@ -252,9 +283,10 @@ ipcMain.handle('get-printers', () => listPrinters());
 ipcMain.handle('get-config', () => readConfig());
 ipcMain.handle('save-config', (_event, config) => {
   // The tray settings window only ever edits defaultPrinter — preserve
-  // whatever station->printer map is already on disk rather than wiping it.
+  // whatever station->printer map and receipt-copy destinations are
+  // already on disk rather than wiping them.
   const existing = readConfig();
-  const next = { defaultPrinter: (config && config.defaultPrinter) || null, printers: existing.printers };
+  const next = { defaultPrinter: (config && config.defaultPrinter) || null, printers: existing.printers, receiptCopies: existing.receiptCopies };
   writeConfig(next);
   return next;
 });

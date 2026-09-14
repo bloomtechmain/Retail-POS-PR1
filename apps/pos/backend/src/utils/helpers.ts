@@ -33,6 +33,18 @@ export const generateSKU = (): string => {
   return `SKU-${uuidv4().slice(0, 8).toUpperCase()}`;
 };
 
+// Random, not sequential/guessable — these get handed out individually as
+// single-use discount codes, unlike the human-entered codes createCoupon
+// takes verbatim from the admin.
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I — easy to misread
+export const generateCouponCode = (): string => {
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  }
+  return code;
+};
+
 export const generateBatchNumber = (): string => {
   const now = new Date();
   const date = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -105,6 +117,43 @@ export const consumeFifoBatches = async (
   return quantity > 0 ? round2(totalCost / quantity) : 0;
 };
 
+// Consumes a quantity from ONE specific batch a cashier explicitly picked
+// (the multi-batch picker in POS.tsx), instead of consumeFifoBatches'
+// automatic oldest/nearest-expiry-first selection. Errors rather than
+// partially fulfilling if the batch doesn't belong to this product or
+// doesn't have enough left — a picked batch is a firm choice, not a
+// fallback source to blend with others.
+export const consumeSpecificBatch = async (
+  client: PoolClient,
+  productId: number,
+  batchId: number,
+  quantity: number
+): Promise<{ unitCost: number; sellingPrice: number | null }> => {
+  const result = await client.query(
+    `SELECT product_id, quantity_remaining, unit_cost, selling_price FROM product_batches
+     WHERE id = $1 FOR UPDATE`,
+    [batchId]
+  );
+  if (result.rows.length === 0) throw new Error('Selected batch not found');
+  const batch = result.rows[0];
+  if (batch.product_id !== productId) throw new Error('Selected batch does not belong to this product');
+
+  const available = parseFloat(batch.quantity_remaining);
+  if (available < quantity) {
+    throw new Error(`Only ${available} left in the selected batch`);
+  }
+
+  await client.query(
+    'UPDATE product_batches SET quantity_remaining = quantity_remaining - $1 WHERE id = $2',
+    [quantity, batchId]
+  );
+
+  return {
+    unitCost: parseFloat(batch.unit_cost),
+    sellingPrice: batch.selling_price !== null ? parseFloat(batch.selling_price) : null,
+  };
+};
+
 // Creates a new batch for a FIFO/FEFO product — used by GRN receiving,
 // void/return restocking, and inventory-adjustment increases.
 export const addBatch = async (
@@ -114,20 +163,22 @@ export const addBatch = async (
     grnItemId?: number | null;
     quantity: number;
     unitCost: number;
+    sellingPrice?: number | null;
     expiryDate?: string | null;
     receivedDate?: string;
   }
 ): Promise<void> => {
   await client.query(
     `INSERT INTO product_batches
-       (product_id, grn_item_id, batch_number, quantity_received, quantity_remaining, unit_cost, expiry_date, received_date)
-     VALUES ($1,$2,$3,$4,$4,$5,$6,$7)`,
+       (product_id, grn_item_id, batch_number, quantity_received, quantity_remaining, unit_cost, selling_price, expiry_date, received_date)
+     VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8)`,
     [
       params.productId,
       params.grnItemId || null,
       generateBatchNumber(),
       params.quantity,
       params.unitCost,
+      params.sellingPrice ?? null,
       params.expiryDate || null,
       params.receivedDate || new Date().toISOString().slice(0, 10),
     ]

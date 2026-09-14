@@ -27,14 +27,17 @@ export function ToastContainer() {
   const { toasts, remove } = useToastStore();
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+    // Top-center, below the header — deliberately NOT bottom-right, which is
+    // where OS/browser notifications usually appear and reads as one even
+    // though this is a plain in-app component.
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none w-full px-4">
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="pointer-events-auto flex items-center gap-3 min-w-[280px] max-w-sm bg-white rounded-xl shadow-lg border border-surface-200 px-4 py-3 animate-in"
+          className="pointer-events-auto flex items-center gap-3 min-w-[320px] max-w-md bg-white rounded-xl shadow-2xl border-2 border-surface-200 px-5 py-4 animate-in"
         >
           <div className="shrink-0">{icons[toast.type]}</div>
-          <p className="text-sm text-surface-800 flex-1">{toast.message}</p>
+          <p className="text-sm font-medium text-surface-800 flex-1">{toast.message}</p>
           <button
             onClick={() => remove(toast.id)}
             className="shrink-0 text-surface-400 hover:text-surface-600 transition-colors"

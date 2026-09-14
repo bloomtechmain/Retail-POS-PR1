@@ -4,7 +4,7 @@ import { usePOSStore } from '../store/posStore';
 import { useToastStore } from '../store/toastStore';
 import { useAuthStore } from '../store/authStore';
 import { useRestaurantStore } from '../store/restaurantStore';
-import { Product, Promotion, Sale, SaleItem, SaleReturn, Customer, CartItem, Category } from '../types';
+import { Product, Promotion, Sale, SaleItem, SaleReturn, Customer, CartItem, Category, ProductBatch } from '../types';
 import api from '../services/api';
 import { Modal } from '../components/ui/Modal';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -849,8 +849,9 @@ const round3 = (v: number) => Math.round(v * 1000) / 1000;
 // ─── Add-to-Cart Modal — pops up on every deliberate product selection (grid
 // tile or search pick), never on a barcode scan, so a cashier sets the exact
 // quantity/unit up front instead of adding 1 and editing the cart row after. ──
-function AddToCartModal({ product, onClose, onConfirm }: {
+function AddToCartModal({ product, batch, onClose, onConfirm }: {
   product: Product | null;
+  batch?: { id: number; label: string; sellingPrice: number };
   onClose: () => void;
   onConfirm: (product: Product, baseQty: number) => void;
 }) {
@@ -873,7 +874,8 @@ function AddToCartModal({ product, onClose, onConfirm }: {
   const step = activeMeta?.step ?? getUnitMeta(product.unit_type).step;
   const qty = parseFloat(qtyText) || 0;
   const baseQty = convertToBaseUnit(qty, unit, product.unit_type);
-  const lineTotal = Math.max(0, product.selling_price * baseQty);
+  const effectivePrice = batch?.sellingPrice ?? product.selling_price;
+  const lineTotal = Math.max(0, effectivePrice * baseQty);
 
   const confirm = () => {
     if (baseQty <= 0) return;
@@ -884,8 +886,8 @@ function AddToCartModal({ product, onClose, onConfirm }: {
     <Modal isOpen={!!product} onClose={onClose} title={product.name} size="sm">
       <div className="space-y-4">
         <div className="flex items-center justify-between bg-surface-50 rounded-lg px-3 py-2">
-          <span className="text-sm text-surface-500">Price</span>
-          <span className="font-bold text-primary-600">{fmt(product.selling_price)} / {getUnitMeta(product.unit_type).abbr}</span>
+          <span className="text-sm text-surface-500">Price{batch ? ` (${batch.label})` : ''}</span>
+          <span className="font-bold text-primary-600">{fmt(effectivePrice)} / {getUnitMeta(product.unit_type).abbr}</span>
         </div>
 
         <div>
@@ -940,6 +942,54 @@ function AddToCartModal({ product, onClose, onConfirm }: {
   );
 }
 
+// ─── Batch Picker Modal ───────────────────────────────────────────────────────
+// Shown when a FIFO product has more than one open batch — the cashier
+// picks exactly which one this sale draws stock and price from, rather
+// than the silent oldest/nearest-expiry-first selection every other case
+// uses. Reuses the same batch-info shape shown in Inventory's "View
+// Batches" modal (batch number, received, expiry, remaining), plus
+// selling price, minus unit cost — cashiers shouldn't see cost.
+function BatchPickerModal({ state, onClose, onSelect }: {
+  state: { product: Product; batches: ProductBatch[] } | null;
+  onClose: () => void;
+  onSelect: (batch: { id: number; label: string; sellingPrice: number }) => void;
+}) {
+  if (!state) return null;
+  const { product, batches } = state;
+
+  return (
+    <Modal isOpen={!!state} onClose={onClose} title={`Which batch of ${product.name}?`} size="sm">
+      <div className="space-y-2">
+        <p className="text-sm text-surface-500 -mt-1 mb-2">This product has stock in more than one batch — pick which one to sell from.</p>
+        {batches.map((b) => {
+          const price = b.selling_price ?? product.selling_price;
+          return (
+            <button
+              key={b.id}
+              onClick={() => onSelect({
+                id: b.id,
+                label: `${b.batch_number}${b.expiry_date ? ` · exp ${new Date(b.expiry_date).toLocaleDateString()}` : ''}`,
+                sellingPrice: price,
+              })}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-surface-200 hover:border-primary-400 hover:bg-primary-50 text-left transition-colors"
+            >
+              <div>
+                <div className="font-semibold text-surface-900 text-sm">{b.batch_number}</div>
+                <div className="text-xs text-surface-500">
+                  Received {new Date(b.received_date).toLocaleDateString()}
+                  {b.expiry_date && <> · Exp {new Date(b.expiry_date).toLocaleDateString()}</>}
+                  {' · '}{b.quantity_remaining} left
+                </div>
+              </div>
+              <div className="font-mono font-bold text-primary-600 shrink-0">{fmt(price)}</div>
+            </button>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Main POS Page ────────────────────────────────────────────────────────────
 export default function POS() {
   const { user } = useAuthStore();
@@ -958,7 +1008,12 @@ export default function POS() {
   const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [markAsVat, setMarkAsVat] = useState(false);
   const [catalogView, setCatalogView] = useState<'grid' | 'cart'>('grid');
-  const [pickedProduct, setPickedProduct] = useState<Product | null>(null);
+  const [pickedProduct, setPickedProduct] = useState<{ product: Product; batch?: { id: number; label: string; sellingPrice: number } } | null>(null);
+  const [batchPicker, setBatchPicker] = useState<{
+    product: Product;
+    batches: ProductBatch[];
+    andThen: (batch: { id: number; label: string; sellingPrice: number }) => void;
+  } | null>(null);
   const [heldBillsCount, setHeldBillsCount] = useState(0);
   const [heldBillsModalOpen, setHeldBillsModalOpen] = useState(false);
   const [heldBillsList, setHeldBillsList] = useState<Sale[]>([]);
@@ -1062,8 +1117,33 @@ export default function POS() {
   };
 
   const handleAddToCart = (product: Product, baseQty: number) => {
-    pos.addProduct(product, baseQty);
+    pos.addProduct(product, baseQty, pickedProduct?.batch);
     setPickedProduct(null);
+  };
+
+  const batchLabel = (b: ProductBatch) =>
+    `${b.batch_number}${b.expiry_date ? ` · exp ${new Date(b.expiry_date).toLocaleDateString()}` : ''}`;
+
+  // FIFO products with more than one open batch need the cashier to say
+  // which one this sale draws from — different batches can carry different
+  // prices. Everything else (weighted-average products, or a FIFO product
+  // down to its one remaining batch) skips straight through with no extra
+  // step, same speed as today.
+  const resolveBatch = async (product: Product, andThen: (batch?: { id: number; label: string; sellingPrice: number }) => void) => {
+    if (product.costing_method !== 'fifo') { andThen(); return; }
+    try {
+      const r = await api.get(`/products/${product.id}/batches`);
+      const open = (r.data.data as ProductBatch[]).filter((b) => b.quantity_remaining > 0);
+      if (open.length === 0) { andThen(); return; }
+      if (open.length === 1) {
+        const b = open[0];
+        andThen({ id: b.id, label: batchLabel(b), sellingPrice: b.selling_price ?? product.selling_price });
+        return;
+      }
+      setBatchPicker({ product, batches: open, andThen });
+    } catch {
+      andThen(); // best-effort — a failed batch lookup shouldn't block adding to cart
+    }
   };
 
   // ── Restaurant Mode: held-order helpers ────────────────────────────────────
@@ -1366,7 +1446,10 @@ export default function POS() {
         <div className="bg-white border-b border-surface-200 px-5 py-3 flex items-center gap-4">
           {/* Search */}
           <div className="flex-1 max-w-2xl">
-            <ProductSearch onScan={(p) => pos.addProduct(p)} onPick={(p) => setPickedProduct(p)} />
+            <ProductSearch
+              onScan={(p) => resolveBatch(p, (batch) => pos.addProduct(p, 1, batch))}
+              onPick={(p) => resolveBatch(p, (batch) => setPickedProduct({ product: p, batch }))}
+            />
           </div>
 
           {/* Browse / Cart toggle */}
@@ -1414,7 +1497,7 @@ export default function POS() {
           </div>
         </div>
 
-        {catalogView === 'grid' && <ProductGrid onPick={(p) => setPickedProduct(p)} />}
+        {catalogView === 'grid' && <ProductGrid onPick={(p) => resolveBatch(p, (batch) => setPickedProduct({ product: p, batch }))} />}
 
         {/* Cart — card-based with inline promotions */}
         {catalogView === 'cart' && (
@@ -1852,7 +1935,16 @@ export default function POS() {
       <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
       <SaleReturnModal isOpen={isReturnOpen} onClose={() => setIsReturnOpen(false)} />
 
-      <AddToCartModal product={pickedProduct} onClose={() => setPickedProduct(null)} onConfirm={handleAddToCart} />
+      <AddToCartModal product={pickedProduct?.product ?? null} batch={pickedProduct?.batch} onClose={() => setPickedProduct(null)} onConfirm={handleAddToCart} />
+      <BatchPickerModal
+        state={batchPicker}
+        onClose={() => setBatchPicker(null)}
+        onSelect={(batch) => {
+          const andThen = batchPicker?.andThen;
+          setBatchPicker(null);
+          andThen?.(batch);
+        }}
+      />
 
       <Modal isOpen={heldBillsModalOpen} onClose={() => setHeldBillsModalOpen(false)} title="Held Bills" size="md">
         {loadingHeldBills ? (

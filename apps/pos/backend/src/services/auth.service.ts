@@ -167,14 +167,32 @@ export const switchSandbox = async (user: AuthPayload, sandbox: boolean) => {
   return { token, sandbox };
 };
 
-export const changePassword = async (userId: number, currentPassword: string, newPassword: string) => {
-  const result = await query('SELECT password FROM users WHERE id = $1', [userId]);
+// `user` is req.user from an already-verified token (same convention as
+// switchSandbox below) — needed so we can re-sign a fresh token with the
+// same claims once the old one is revoked, instead of just leaving the
+// caller's now-invalid token in place. Without this, the very next request
+// 401s and force-logs the user out right after a "successful" change.
+export const changePassword = async (user: AuthPayload, currentPassword: string, newPassword: string) => {
+  const result = await query('SELECT password FROM users WHERE id = $1', [user.id]);
   if (result.rows.length === 0) throw createError('User not found', 404);
 
   const isMatch = await bcrypt.compare(currentPassword, result.rows[0].password);
   if (!isMatch) throw createError('Current password is incorrect', 400);
 
   const hashed = await bcrypt.hash(newPassword, 10);
-  await query('UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2', [hashed, userId]);
-  markPasswordChanged(userId);
+  await query('UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2', [hashed, user.id]);
+  markPasswordChanged(user.id);
+
+  const token = signToken({
+    id: user.id,
+    email: user.email,
+    role_id: user.role_id,
+    role_name: user.role_name,
+    permissions: user.permissions,
+    tenant_id: user.tenant_id,
+    schema_name: user.schema_name,
+    sandbox: user.sandbox,
+  });
+
+  return { token };
 };

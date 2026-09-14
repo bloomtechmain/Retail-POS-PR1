@@ -17,6 +17,7 @@ export interface Settings {
   currency_code: string;
   currency_symbol: string;
   vat_registration_number?: string;
+  default_invoice_note?: string;
   plan_key: string;
   setup_completed: boolean;
   restaurant_mode_enabled: boolean;
@@ -96,6 +97,7 @@ export interface ProductBatch {
   quantity_received: number;
   quantity_remaining: number;
   unit_cost: number;
+  selling_price?: number;
   expiry_date?: string;
   received_date: string;
   created_at: string;
@@ -138,6 +140,12 @@ export interface CartItem {
   promotion_id?: number;
   tax_amount?: number;
   subtotal?: number;
+  // Set when the cashier explicitly picked a batch in the multi-batch
+  // picker — creates a distinct cart line from other batches of the same
+  // product (never merges with them), and that batch's own price/stock is
+  // what the sale actually uses.
+  batch_id?: number;
+  batch_label?: string;
 }
 
 export interface Sale {
@@ -175,6 +183,7 @@ export interface Sale {
   buyer_phone?: string;
   delivery_date?: string;
   place_of_supply?: string;
+  additional_info?: string;
   created_at: string;
   items?: SaleItem[];
 }
@@ -365,6 +374,7 @@ export interface Coupon {
   start_date?: string;
   end_date?: string;
   is_active: boolean;
+  batch_label?: string;
 }
 
 export interface DashboardStats {

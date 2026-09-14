@@ -2,6 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// Overridable for local dev when the default backend port is already taken
+// by something else on the machine (e.g. another project) — unset, this is
+// unchanged from before.
+const backendPort = process.env.VITE_BACKEND_PORT || '5000';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -13,11 +18,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/downloads': {
-        target: 'http://localhost:5000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
     },

@@ -83,6 +83,7 @@ export const updateSettings = async (
     currency_code: string;
     currency_symbol: string;
     vat_registration_number: string;
+    default_invoice_note: string;
     restaurant_mode_enabled: boolean;
   }>
 ): Promise<Settings> => {
@@ -92,7 +93,7 @@ export const updateSettings = async (
     `UPDATE settings SET
        business_name = $1, business_type = $2, logo_data_url = $3, address = $4,
        phone = $5, email = $6, currency_code = $7, currency_symbol = $8,
-       vat_registration_number = $9, restaurant_mode_enabled = $10, updated_at = NOW()
+       vat_registration_number = $9, restaurant_mode_enabled = $10, default_invoice_note = $11, updated_at = NOW()
      WHERE id = 1 RETURNING *`,
     [
       data.business_name?.trim() || existing.business_name,
@@ -105,6 +106,7 @@ export const updateSettings = async (
       data.currency_symbol?.trim() || existing.currency_symbol,
       data.vat_registration_number ?? existing.vat_registration_number,
       data.restaurant_mode_enabled ?? existing.restaurant_mode_enabled,
+      data.default_invoice_note ?? existing.default_invoice_note,
     ]
   );
   return result.rows[0];

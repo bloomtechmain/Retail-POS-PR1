@@ -35,6 +35,7 @@ export default function SettingsPage() {
   const [switchingEnv, setSwitchingEnv] = useState(false);
   const [switchingMode, setSwitchingMode] = useState(false);
   const [vatRegNumber, setVatRegNumber] = useState('');
+  const [defaultInvoiceNote, setDefaultInvoiceNote] = useState('');
   const [savingVat, setSavingVat] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState(user?.email || '');
@@ -61,6 +62,7 @@ export default function SettingsPage() {
         currency_symbol: settings.currency_symbol || '$',
       });
       setVatRegNumber(settings.vat_registration_number || '');
+      setDefaultInvoiceNote(settings.default_invoice_note || '');
       setLoading(false);
     }
   }, [settings]);
@@ -86,10 +88,15 @@ export default function SettingsPage() {
     setSavingCredentials(true);
     try {
       if (newPassword) {
-        await api.put('/auth/change-password', {
+        const r = await api.put('/auth/change-password', {
           current_password: currentPassword,
           new_password: newPassword,
         });
+        // Changing the password revokes every token issued before this
+        // moment — including the one this very request was authenticated
+        // with — so without swapping in the fresh token the next API call
+        // would 401 and force-log the user straight back out.
+        if (r.data.token) setToken(r.data.token, sandbox);
       }
       if (loginEmail && loginEmail !== user?.email && user) {
         const r = await api.put(`/users/${user.id}`, { email: loginEmail });
@@ -154,7 +161,7 @@ export default function SettingsPage() {
   const saveVatSettings = async () => {
     setSavingVat(true);
     try {
-      const r = await api.put('/settings', { vat_registration_number: vatRegNumber });
+      const r = await api.put('/settings', { vat_registration_number: vatRegNumber, default_invoice_note: defaultInvoiceNote });
       setSettings(r.data.data);
       toast.success('VAT settings saved');
     } catch (err) {
@@ -378,6 +385,16 @@ export default function SettingsPage() {
                   value={vatRegNumber}
                   onChange={(e) => setVatRegNumber(e.target.value)}
                   placeholder="e.g. TN2342"
+                />
+              </div>
+              <div>
+                <label className="label">Default Additional Information <span className="font-normal text-surface-400">(pre-fills on every new Tax Invoice, editable per invoice)</span></label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={defaultInvoiceNote}
+                  onChange={(e) => setDefaultInvoiceNote(e.target.value)}
+                  placeholder="e.g. Goods once sold are not returnable"
                 />
                 <div className="flex justify-end mt-2">
                   <button className="btn-primary btn-sm" disabled={savingVat} onClick={saveVatSettings}>

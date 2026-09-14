@@ -111,6 +111,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     quantity_received DECIMAL(12,3) NOT NULL,
     quantity_remaining DECIMAL(12,3) NOT NULL,
     unit_cost DECIMAL(12,4) NOT NULL,
+    selling_price DECIMAL(12,2),
     expiry_date DATE,
     received_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
@@ -213,6 +214,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     end_date DATE,
     is_active BOOLEAN DEFAULT TRUE,
     created_by INTEGER REFERENCES public.users(id),
+    batch_label VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
   )`,
@@ -300,6 +302,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     buyer_phone VARCHAR(50),
     delivery_date DATE,
     place_of_supply VARCHAR(255),
+    additional_info TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
   )`,
@@ -318,6 +321,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     tax_amount DECIMAL(12,2) DEFAULT 0,
     subtotal DECIMAL(12,2) NOT NULL,
     promotion_id INTEGER REFERENCES promotions(id),
+    batch_id INTEGER REFERENCES product_batches(id),
     kot_sent_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
   )`,
@@ -391,6 +395,7 @@ export const TENANT_SCHEMA_STATEMENTS: string[] = [
     currency_code VARCHAR(10) NOT NULL DEFAULT 'USD',
     currency_symbol VARCHAR(10) NOT NULL DEFAULT '$',
     vat_registration_number VARCHAR(100),
+    default_invoice_note TEXT,
     plan_key VARCHAR(20) NOT NULL DEFAULT 'basic',
     -- Explicit FeatureKey[] override, set by a marketing agent customizing a
     -- customer's package beyond its plan defaults (see requireFeature /

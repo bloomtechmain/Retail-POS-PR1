@@ -278,9 +278,13 @@ function getPrinterConfigPath() {
 }
 
 // `printers` maps a kitchen-station id (string) to a printer name, for KOT
-// routing — separate from `defaultPrinter` (the receipt printer). Old
-// installs' config files predate this key entirely; reading one back
-// always backfills `printers: {}` so they never crash on the new shape.
+// routing (content-SPLITTING — different items to different stations) —
+// separate from `defaultPrinter` (the receipt printer). `receiptCopies` is
+// a different thing again: named extra destinations that get the exact
+// SAME bill as the default printer (fan-out, e.g. a kitchen or store copy
+// of the whole receipt), not a station-scoped item split. Old installs'
+// config files predate one or both keys; reading one back always backfills
+// `printers: {}`/`receiptCopies: []` so they never crash on the new shape.
 function readPrinterConfig() {
   try {
     const raw = fs.readFileSync(getPrinterConfigPath(), 'utf8');
@@ -288,9 +292,10 @@ function readPrinterConfig() {
     return {
       defaultPrinter: parsed.defaultPrinter || null,
       printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
+      receiptCopies: Array.isArray(parsed.receiptCopies) ? parsed.receiptCopies : [],
     };
   } catch {
-    return { defaultPrinter: null, printers: {} };
+    return { defaultPrinter: null, printers: {}, receiptCopies: [] };
   }
 }
 
@@ -376,24 +381,48 @@ ipcMain.handle('printer:save-config', (_event, config) => {
   const next = {
     defaultPrinter: (config && config.defaultPrinter) || null,
     printers: config && config.printers && typeof config.printers === 'object' ? config.printers : {},
+    receiptCopies: config && Array.isArray(config.receiptCopies)
+      ? config.receiptCopies.filter((c) => c && c.printerName).map((c) => ({ label: String(c.label || ''), printerName: String(c.printerName) }))
+      : [],
   };
   writePrinterConfig(next);
   return next;
 });
-// `target` (a kitchen-station id) is optional — omitted, this resolves
-// exactly like before (the one receipt printer). Passed, it looks up that
+// `target` (a kitchen-station id) is optional. Passed, this looks up that
 // station's printer, falling back to the default if the station has none
-// configured yet, so KOT printing degrades gracefully instead of failing
-// outright on a freshly-added station.
+// configured yet (KOT printing — a single, content-specific destination).
+// Omitted, this is a normal bill print: the SAME document goes to the
+// default printer and every configured `receiptCopies` destination at
+// once (e.g. a kitchen/store copy of the whole receipt) — fan-out, not a
+// station lookup.
 ipcMain.handle('printer:print', async (_event, html, target) => {
-  try {
-    const config = readPrinterConfig();
-    const deviceName = target ? (config.printers[target] || config.defaultPrinter) : config.defaultPrinter;
-    await printHtml(html, deviceName);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
+  const config = readPrinterConfig();
+
+  if (target) {
+    try {
+      const deviceName = config.printers[target] || config.defaultPrinter;
+      await printHtml(html, deviceName);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
+
+  const destinations = [...new Set(
+    [config.defaultPrinter, ...config.receiptCopies.map((c) => c.printerName)].filter(Boolean)
+  )];
+  if (destinations.length === 0) {
+    return { success: false, error: 'No default printer configured. Open Settings and pick a printer first.' };
+  }
+  const results = await Promise.allSettled(destinations.map((deviceName) => printHtml(html, deviceName)));
+  const failures = results.filter((r) => r.status === 'rejected');
+  if (failures.length === results.length) {
+    return { success: false, error: failures[0].reason?.message || 'Print failed' };
+  }
+  if (failures.length > 0) {
+    return { success: true, warning: `Printed, but ${failures.length} of ${results.length} printer(s) failed` };
+  }
+  return { success: true };
 });
 
 // ─── Backup & Restore ─────────────────────────────────────────────────────────
@@ -1337,12 +1366,15 @@ async function runMigrations() {
           quantity_received DECIMAL(12,3) NOT NULL,
           quantity_remaining DECIMAL(12,3) NOT NULL,
           unit_cost DECIMAL(12,4) NOT NULL,
+          selling_price DECIMAL(12,2),
           expiry_date DATE,
           received_date DATE NOT NULL,
           created_at TIMESTAMP DEFAULT NOW()
         )`,
         `CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id)`,
         `CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id)`,
+        `ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS selling_price DECIMAL(12,2)`,
+        `ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES product_batches(id)`,
         `CREATE TABLE IF NOT EXISTS tax_rates (
           id SERIAL PRIMARY KEY,
           name VARCHAR(100) NOT NULL,
@@ -1358,6 +1390,7 @@ async function runMigrations() {
         `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_phone VARCHAR(50)`,
         `ALTER TABLE sales ADD COLUMN IF NOT EXISTS delivery_date DATE`,
         `ALTER TABLE sales ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(255)`,
+        `ALTER TABLE sales ADD COLUMN IF NOT EXISTS additional_info TEXT`,
         `CREATE TABLE IF NOT EXISTS sale_item_taxes (
           id SERIAL PRIMARY KEY,
           sale_item_id INTEGER NOT NULL REFERENCES sale_items(id) ON DELETE CASCADE,
@@ -1369,6 +1402,7 @@ async function runMigrations() {
         )`,
         `CREATE INDEX IF NOT EXISTS idx_sale_item_taxes_item ON sale_item_taxes(sale_item_id)`,
         `ALTER TABLE settings ADD COLUMN IF NOT EXISTS vat_registration_number VARCHAR(100)`,
+        `ALTER TABLE settings ADD COLUMN IF NOT EXISTS default_invoice_note TEXT`,
         `ALTER TABLE settings ADD COLUMN IF NOT EXISTS plan_key VARCHAR(20) NOT NULL DEFAULT 'basic'`,
         `ALTER TABLE settings ADD COLUMN IF NOT EXISTS custom_features JSONB`,
         `CREATE TABLE IF NOT EXISTS vat_invoice_counter (
@@ -1395,6 +1429,7 @@ async function runMigrations() {
           updated_at TIMESTAMP DEFAULT NOW()
         )`,
         `CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)`,
+        `ALTER TABLE coupons ADD COLUMN IF NOT EXISTS batch_label VARCHAR(100)`,
         `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id)`,
         `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_discount DECIMAL(12,2) DEFAULT 0`,
         // Restaurant Mode: kitchen stations, tables, held-order lifecycle

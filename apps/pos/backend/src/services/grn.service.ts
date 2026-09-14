@@ -73,6 +73,7 @@ export const createGRN = async (
       product_id: number;
       quantity: number;
       buying_price: number;
+      selling_price?: number;
       expiry_date?: string;
     }>;
   },
@@ -118,7 +119,7 @@ export const createGRN = async (
 
       // Get current product stock, avg cost, and costing method
       const productResult = await client.query(
-        'SELECT current_stock, avg_cost, costing_method FROM products WHERE id = $1 FOR UPDATE',
+        'SELECT current_stock, avg_cost, costing_method, selling_price FROM products WHERE id = $1 FOR UPDATE',
         [item.product_id]
       );
       if (productResult.rows.length === 0) throw createError(`Product ${item.product_id} not found`, 404);
@@ -165,6 +166,11 @@ export const createGRN = async (
           grnItemId,
           quantity: item.quantity,
           unitCost: item.buying_price,
+          // Each batch keeps its own price, independently editable — but a
+          // GRN line that doesn't specify one (legacy callers, or a cashier
+          // who leaves it blank) defaults to whatever the product's price
+          // was at the moment this batch was received, not NULL.
+          sellingPrice: item.selling_price ?? parseFloat(product.selling_price),
           expiryDate: item.expiry_date || null,
           receivedDate: data.received_date,
         });

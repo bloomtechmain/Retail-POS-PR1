@@ -102,10 +102,10 @@ export const generateVatInvoice = async (saleId: number, data: GenerateVatInvoic
     const updated = await client.query(
       `UPDATE sales SET
          vat_invoice_number = $1, buyer_vat_reg_no = $2, buyer_address = $3, buyer_phone = $4,
-         delivery_date = $5, place_of_supply = $6,
-         customer_id = COALESCE($7, customer_id), customer_name = COALESCE($8, customer_name),
+         delivery_date = $5, place_of_supply = $6, additional_info = $7,
+         customer_id = COALESCE($8, customer_id), customer_name = COALESCE($9, customer_name),
          updated_at = NOW()
-       WHERE id = $9 RETURNING *`,
+       WHERE id = $10 RETURNING *`,
       [
         vatInvoiceNumber,
         data.buyer_vat_reg_no || (customer ? customer.vat_reg_no : null) || null,
@@ -113,6 +113,7 @@ export const generateVatInvoice = async (saleId: number, data: GenerateVatInvoic
         data.buyer_phone || (customer ? customer.phone : null) || null,
         data.delivery_date || null,
         data.place_of_supply || null,
+        data.additional_info || null,
         data.customer_id || null,
         customer ? customer.name : (data.customer_name || null),
         saleId,

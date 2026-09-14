@@ -16,6 +16,13 @@ export const create = async (req: AuthRequest, res: Response, next: NextFunction
   } catch (err) { next(err); }
 };
 
+export const bulkGenerate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await couponService.bulkGenerateCoupons(req.body);
+    res.status(201).json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
 export const update = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const data = await couponService.updateCoupon(parseInt(req.params.id), req.body);

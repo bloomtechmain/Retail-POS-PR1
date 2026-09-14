@@ -187,12 +187,19 @@ export const runMigrations = async (): Promise<void> => {
         quantity_received DECIMAL(12,3) NOT NULL,
         quantity_remaining DECIMAL(12,3) NOT NULL,
         unit_cost DECIMAL(12,4) NOT NULL,
+        selling_price DECIMAL(12,2),
         expiry_date DATE,
         received_date DATE NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       )`,
       `CREATE INDEX IF NOT EXISTS idx_product_batches_product ON product_batches(product_id)`,
       `CREATE INDEX IF NOT EXISTS idx_product_batches_grn_item ON product_batches(grn_item_id)`,
+      // Existing installs created this table before selling_price existed.
+      `ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS selling_price DECIMAL(12,2)`,
+      // Traceability: which batch a sale line was actually fulfilled from,
+      // when the cashier explicitly picked one (NULL when FIFO auto-picked
+      // across possibly-multiple batches, same as before this existed).
+      `ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS batch_id INTEGER REFERENCES product_batches(id)`,
       `CREATE TABLE IF NOT EXISTS tax_rates (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
@@ -208,6 +215,7 @@ export const runMigrations = async (): Promise<void> => {
       `ALTER TABLE sales ADD COLUMN IF NOT EXISTS buyer_phone VARCHAR(50)`,
       `ALTER TABLE sales ADD COLUMN IF NOT EXISTS delivery_date DATE`,
       `ALTER TABLE sales ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(255)`,
+      `ALTER TABLE sales ADD COLUMN IF NOT EXISTS additional_info TEXT`,
       `CREATE TABLE IF NOT EXISTS sale_item_taxes (
         id SERIAL PRIMARY KEY,
         sale_item_id INTEGER NOT NULL REFERENCES sale_items(id) ON DELETE CASCADE,
@@ -219,6 +227,7 @@ export const runMigrations = async (): Promise<void> => {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_sale_item_taxes_item ON sale_item_taxes(sale_item_id)`,
       `ALTER TABLE settings ADD COLUMN IF NOT EXISTS vat_registration_number VARCHAR(100)`,
+      `ALTER TABLE settings ADD COLUMN IF NOT EXISTS default_invoice_note TEXT`,
       `ALTER TABLE settings ADD COLUMN IF NOT EXISTS plan_key VARCHAR(20) NOT NULL DEFAULT 'basic'`,
       `ALTER TABLE settings ADD COLUMN IF NOT EXISTS custom_features JSONB`,
       `CREATE TABLE IF NOT EXISTS vat_invoice_counter (
@@ -246,6 +255,10 @@ export const runMigrations = async (): Promise<void> => {
       `CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)`,
       `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_id INTEGER REFERENCES coupons(id)`,
       `ALTER TABLE sales ADD COLUMN IF NOT EXISTS coupon_discount DECIMAL(12,2) DEFAULT 0`,
+      // Groups a bulk-generated batch of single-use codes (e.g. "50 codes
+      // for the Diwali Sale") for the admin's own filtering — never read by
+      // redemption logic, which only ever looks at one coupon row at a time.
+      `ALTER TABLE coupons ADD COLUMN IF NOT EXISTS batch_label VARCHAR(100)`,
       `CREATE TABLE IF NOT EXISTS kitchen_stations (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,

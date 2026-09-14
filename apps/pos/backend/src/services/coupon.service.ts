@@ -2,15 +2,14 @@ import { PoolClient } from 'pg';
 import { query } from '../config/database';
 import { createError } from '../middleware/error';
 import { Coupon } from '../types';
-import { round2 } from '../utils/helpers';
+import { round2, generateCouponCode } from '../utils/helpers';
 
 export const getCoupons = async (): Promise<Coupon[]> => {
   const result = await query('SELECT * FROM coupons ORDER BY created_at DESC', []);
   return result.rows;
 };
 
-const validate = (data: Partial<Coupon>) => {
-  if (!data.code?.trim()) throw createError('Coupon code is required', 400);
+const validateDiscountRules = (data: Partial<Coupon>) => {
   if (data.type !== 'percent' && data.type !== 'fixed') {
     throw createError('Coupon type must be "percent" or "fixed"', 400);
   }
@@ -19,6 +18,11 @@ const validate = (data: Partial<Coupon>) => {
   if (data.type === 'percent' && value > 100) {
     throw createError('Percent discount cannot exceed 100', 400);
   }
+};
+
+const validate = (data: Partial<Coupon>) => {
+  if (!data.code?.trim()) throw createError('Coupon code is required', 400);
+  validateDiscountRules(data);
 };
 
 export const createCoupon = async (data: Partial<Coupon>): Promise<Coupon> => {
@@ -41,6 +45,65 @@ export const createCoupon = async (data: Partial<Coupon>): Promise<Coupon> => {
     ]
   );
   return result.rows[0];
+};
+
+// One admin action creates many DISTINCT single-use codes sharing the same
+// discount rules — e.g. "50 codes for the Diwali Sale" to hand out
+// individually, so one leaked/shared code can't be reused beyond its own
+// single use. Each generated row is forced to max_uses=1 regardless of
+// what a shared/reusable coupon might otherwise allow — that's what makes
+// it single-use. No changes needed to redeemCoupon: the existing
+// max_uses/uses_count check (already atomic under FOR UPDATE) enforces
+// this correctly per-code with zero extra logic.
+export const bulkGenerateCoupons = async (data: {
+  type: 'percent' | 'fixed';
+  discount_value: number;
+  min_purchase_amount?: number;
+  max_uses_per_customer?: number;
+  start_date?: string;
+  end_date?: string;
+  count: number;
+  batch_label?: string;
+}): Promise<Coupon[]> => {
+  validateDiscountRules(data);
+  const count = Math.floor(Number(data.count));
+  if (!(count > 0) || count > 500) {
+    throw createError('Count must be between 1 and 500', 400);
+  }
+
+  const created: Coupon[] = [];
+  for (let i = 0; i < count; i++) {
+    // Collisions are astronomically unlikely (8 chars from a 32-symbol
+    // alphabet) but retry on the unique constraint rather than letting one
+    // collision fail the whole batch.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const result = await query(
+          `INSERT INTO coupons (
+             code, type, discount_value, min_purchase_amount, max_uses,
+             max_uses_per_customer, start_date, end_date, is_active, batch_label
+           ) VALUES ($1,$2,$3,$4,1,$5,$6,$7,TRUE,$8) RETURNING *`,
+          [
+            generateCouponCode(),
+            data.type,
+            data.discount_value,
+            data.min_purchase_amount || null,
+            data.max_uses_per_customer || null,
+            data.start_date || null,
+            data.end_date || null,
+            data.batch_label?.trim() || null,
+          ]
+        );
+        created.push(result.rows[0]);
+        break;
+      } catch (err) {
+        const pgErr = err as { code?: string };
+        if (pgErr.code === '23505' && attempt < 4) continue; // unique_violation on code — try another
+        throw err;
+      }
+    }
+  }
+  return created;
 };
 
 export const updateCoupon = async (id: number, data: Partial<Coupon>): Promise<Coupon> => {

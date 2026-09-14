@@ -15,6 +15,17 @@ const emptyForm = {
   end_date: '',
 };
 
+const emptyBulkForm = {
+  type: 'percent' as 'percent' | 'fixed',
+  discount_value: '',
+  min_purchase_amount: '',
+  max_uses_per_customer: '',
+  start_date: '',
+  end_date: '',
+  count: '10',
+  batch_label: '',
+};
+
 export function CouponsManager() {
   const toast = useToastStore();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -22,6 +33,10 @@ export function CouponsManager() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkForm, setBulkForm] = useState(emptyBulkForm);
+  const [generating, setGenerating] = useState(false);
+  const [generatedCodes, setGeneratedCodes] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,6 +95,34 @@ export function CouponsManager() {
     } finally { setSaving(false); }
   };
 
+  const generateBulk = async () => {
+    const discountValue = parseFloat(bulkForm.discount_value);
+    if (Number.isNaN(discountValue) || discountValue <= 0) { toast.error('Discount value must be greater than zero'); return; }
+    const count = parseInt(bulkForm.count);
+    if (!count || count < 1 || count > 500) { toast.error('Enter a count between 1 and 500'); return; }
+    setGenerating(true);
+    try {
+      const r = await api.post('/coupons/bulk-generate', {
+        type: bulkForm.type,
+        discount_value: discountValue,
+        min_purchase_amount: bulkForm.min_purchase_amount ? parseFloat(bulkForm.min_purchase_amount) : null,
+        max_uses_per_customer: bulkForm.max_uses_per_customer ? parseInt(bulkForm.max_uses_per_customer) : null,
+        start_date: bulkForm.start_date || null,
+        end_date: bulkForm.end_date || null,
+        count,
+        batch_label: bulkForm.batch_label.trim() || null,
+      });
+      const codes = (r.data.data as Coupon[]).map((c) => c.code);
+      setGeneratedCodes(codes);
+      toast.success(`Generated ${codes.length} single-use codes`);
+      setBulkForm(emptyBulkForm);
+      load();
+    } catch (err) {
+      const e = err as AxiosError<{ message: string }>;
+      toast.error(e.response?.data?.message || 'Failed to generate codes');
+    } finally { setGenerating(false); }
+  };
+
   const toggleActive = async (c: Coupon) => {
     try {
       await api.put(`/coupons/${c.id}`, {
@@ -107,12 +150,86 @@ export function CouponsManager() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="font-semibold text-surface-900">Coupons</h3>
-        <p className="text-surface-500 text-sm mt-0.5">
-          Code-entry discounts a cashier applies at checkout — separate from automatic promotions, and a coupon replaces any active promotion on the sale rather than stacking with it.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-semibold text-surface-900">Coupons</h3>
+          <p className="text-surface-500 text-sm mt-0.5">
+            Code-entry discounts a cashier applies at checkout — separate from automatic promotions, and a coupon replaces any active promotion on the sale rather than stacking with it.
+          </p>
+        </div>
+        <button onClick={() => setShowBulk((v) => !v)} className="btn-secondary btn-sm shrink-0">
+          {showBulk ? 'Hide' : 'Generate Codes...'}
+        </button>
       </div>
+
+      {showBulk && (
+        <div className="card p-4 bg-surface-50 space-y-3">
+          <div>
+            <h4 className="font-medium text-surface-800 text-sm">Generate multiple single-use codes</h4>
+            <p className="text-surface-500 text-xs mt-0.5">
+              Creates that many DISTINCT codes sharing the same discount, each usable exactly once — for handing out individually (e.g. 50 codes for a campaign) instead of one shared code anyone could reuse.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="label text-xs">How many codes</label>
+              <input type="number" className="input py-2 text-sm w-24" value={bulkForm.count} onChange={(e) => setBulkForm({ ...bulkForm, count: e.target.value })} min="1" max="500" />
+            </div>
+            <div>
+              <label className="label text-xs">Type</label>
+              <select className="input py-2 text-sm" value={bulkForm.type} onChange={(e) => setBulkForm({ ...bulkForm, type: e.target.value as 'percent' | 'fixed' })}>
+                <option value="percent">Percent</option>
+                <option value="fixed">Fixed Amount</option>
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">{bulkForm.type === 'percent' ? 'Discount (%)' : 'Discount Amount'}</label>
+              <input type="number" className="input py-2 text-sm w-28" value={bulkForm.discount_value} onChange={(e) => setBulkForm({ ...bulkForm, discount_value: e.target.value })} min="0" step="0.01" />
+            </div>
+            <div>
+              <label className="label text-xs">Min Purchase</label>
+              <input type="number" className="input py-2 text-sm w-28" value={bulkForm.min_purchase_amount} onChange={(e) => setBulkForm({ ...bulkForm, min_purchase_amount: e.target.value })} min="0" step="0.01" placeholder="Optional" />
+            </div>
+            <div>
+              <label className="label text-xs">Start Date</label>
+              <input type="date" className="input py-2 text-sm" value={bulkForm.start_date} onChange={(e) => setBulkForm({ ...bulkForm, start_date: e.target.value })} />
+            </div>
+            <div>
+              <label className="label text-xs">End Date</label>
+              <input type="date" className="input py-2 text-sm" value={bulkForm.end_date} onChange={(e) => setBulkForm({ ...bulkForm, end_date: e.target.value })} />
+            </div>
+            <div>
+              <label className="label text-xs">Batch Label</label>
+              <input className="input py-2 text-sm w-36" value={bulkForm.batch_label} onChange={(e) => setBulkForm({ ...bulkForm, batch_label: e.target.value })} placeholder="e.g. Diwali Sale" />
+            </div>
+            <button onClick={generateBulk} disabled={generating} className="btn-primary btn-sm">
+              {generating ? 'Generating...' : 'Generate'}
+            </button>
+          </div>
+
+          {generatedCodes && (
+            <div className="bg-white rounded-lg border border-surface-200 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-surface-600">{generatedCodes.length} codes generated — copy these before leaving this page</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => navigator.clipboard.writeText(generatedCodes.join('\n'))}
+                    className="btn-ghost btn-sm"
+                  >
+                    Copy All
+                  </button>
+                  <button onClick={() => setGeneratedCodes(null)} className="text-surface-400 hover:text-surface-600 text-xs">Dismiss</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 font-mono text-xs max-h-40 overflow-y-auto">
+                {generatedCodes.map((code) => (
+                  <span key={code} className="bg-surface-100 rounded px-2 py-1 text-center">{code}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-2">
         <div>
@@ -168,6 +285,7 @@ export function CouponsManager() {
             <thead>
               <tr>
                 <th>Code</th>
+                <th>Batch</th>
                 <th>Discount</th>
                 <th className="text-right">Uses</th>
                 <th>Status</th>
@@ -178,6 +296,7 @@ export function CouponsManager() {
               {coupons.map((c) => (
                 <tr key={c.id}>
                   <td className="font-mono font-medium">{c.code}</td>
+                  <td className="text-surface-500 text-xs">{c.batch_label || '—'}</td>
                   <td>{c.type === 'percent' ? `${Number(c.discount_value)}%` : Number(c.discount_value).toFixed(2)}</td>
                   <td className="text-right font-mono">{c.uses_count}{c.max_uses != null ? ` / ${c.max_uses}` : ''}</td>
                   <td>

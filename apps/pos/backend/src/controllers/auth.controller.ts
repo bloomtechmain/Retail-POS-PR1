@@ -32,8 +32,8 @@ export const me = async (req: AuthRequest, res: Response, next: NextFunction) =>
 
 export const changePassword = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    await authService.changePassword(req.user!.id, req.body.current_password, req.body.new_password);
-    res.json({ success: true, message: 'Password changed successfully' });
+    const result = await authService.changePassword(req.user!, req.body.current_password, req.body.new_password);
+    res.json({ success: true, message: 'Password changed successfully', token: result.token });
   } catch (err) { next(err); }
 };
 

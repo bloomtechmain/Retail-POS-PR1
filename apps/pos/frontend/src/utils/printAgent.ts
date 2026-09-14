@@ -7,11 +7,21 @@
 //     Agent (a small Electron tray app) over its local HTTP server. The
 //     agent only ever listens on the loopback interface, so this is the one
 //     place in the online POS that legitimately calls a fixed localhost port.
+export interface ReceiptCopyDestination {
+  label: string;
+  printerName: string;
+}
+
 interface PrinterConfig {
   defaultPrinter: string | null;
-  // Kitchen-station id -> printer name, for KOT routing. Empty on installs
-  // that predate Restaurant Mode — always present, never undefined.
+  // Kitchen-station id -> printer name, for KOT routing (content-SPLITTING
+  // — different items to different stations). Empty on installs that
+  // predate Restaurant Mode — always present, never undefined.
   printers: Record<string, string>;
+  // Named extra destinations that get the exact SAME bill as the default
+  // printer (fan-out — e.g. a kitchen or store copy of the whole receipt).
+  // Empty on installs that predate this — always present, never undefined.
+  receiptCopies: ReceiptCopyDestination[];
 }
 
 interface ElectronPrintAPI {
@@ -78,7 +88,7 @@ export async function getAgentDefaultPrinter(): Promise<string | null> {
 
 export async function setAgentDefaultPrinter(defaultPrinter: string): Promise<void> {
   const current = await getAgentPrinterConfig();
-  await saveAgentPrinterConfig({ defaultPrinter, printers: current.printers });
+  await saveAgentPrinterConfig({ defaultPrinter, printers: current.printers, receiptCopies: current.receiptCopies });
 }
 
 export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
@@ -86,7 +96,7 @@ export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
   const res = await agentFetch('/config');
   if (!res.ok) throw new Error('Could not reach Print Agent');
   const data = await res.json();
-  return { defaultPrinter: data.defaultPrinter || null, printers: data.printers || {} };
+  return { defaultPrinter: data.defaultPrinter || null, printers: data.printers || {}, receiptCopies: data.receiptCopies || [] };
 }
 
 async function saveAgentPrinterConfig(config: PrinterConfig): Promise<void> {
@@ -109,7 +119,14 @@ export async function setStationPrinter(stationId: number, printerName: string):
   const printers = { ...current.printers };
   if (printerName) printers[String(stationId)] = printerName;
   else delete printers[String(stationId)];
-  await saveAgentPrinterConfig({ defaultPrinter: current.defaultPrinter, printers });
+  await saveAgentPrinterConfig({ defaultPrinter: current.defaultPrinter, printers, receiptCopies: current.receiptCopies });
+}
+
+// Replaces the whole "extra copy" destination list — e.g. after adding or
+// removing a kitchen/store copy in Settings.
+export async function setReceiptCopies(receiptCopies: ReceiptCopyDestination[]): Promise<void> {
+  const current = await getAgentPrinterConfig();
+  await saveAgentPrinterConfig({ defaultPrinter: current.defaultPrinter, printers: current.printers, receiptCopies });
 }
 
 // `target` is a kitchen-station id — omitted, prints to the one receipt

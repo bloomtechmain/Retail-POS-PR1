@@ -35,9 +35,9 @@ export default function GRNPage() {
     notes: '',
   });
   const [items, setItems] = useState<Array<{
-    product_id: string; quantity: string; buying_price: string; expiry_date: string; receive_unit: string;
+    product_id: string; quantity: string; buying_price: string; selling_price: string; expiry_date: string; receive_unit: string;
   }>>([
-    { product_id: '', quantity: '', buying_price: '', expiry_date: '', receive_unit: '' }
+    { product_id: '', quantity: '', buying_price: '', selling_price: '', expiry_date: '', receive_unit: '' }
   ]);
 
   const load = useCallback(async () => {
@@ -62,14 +62,25 @@ export default function GRNPage() {
   const getProductCostingMethod = (productId: string | number) =>
     products.find(p => p.id === Number(productId))?.costing_method;
 
-  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '', expiry_date: '', receive_unit: '' }]);
+  const addItem = () => setItems(i => [...i, { product_id: '', quantity: '', buying_price: '', selling_price: '', expiry_date: '', receive_unit: '' }]);
   const removeItem = (idx: number) => setItems(i => i.filter((_, j) => j !== idx));
   const updateItem = (idx: number, field: string, value: string) => {
     setItems(items.map((item, j) => {
       if (j !== idx) return item;
-      // Switching products resets any expiry choice and defaults the receive
-      // unit back to that product's own base unit
-      if (field === 'product_id') return { ...item, product_id: value, expiry_date: '', receive_unit: getProductUnit(value) || '' };
+      // Switching products resets any expiry choice, defaults the receive
+      // unit back to that product's own base unit, and pre-fills this
+      // batch's selling price from the product's current one — still
+      // independently editable per batch from here on.
+      if (field === 'product_id') {
+        const product = products.find(p => p.id === Number(value));
+        return {
+          ...item,
+          product_id: value,
+          expiry_date: '',
+          receive_unit: getProductUnit(value) || '',
+          selling_price: product ? String(product.selling_price) : '',
+        };
+      }
       return { ...item, [field]: value };
     }));
   };
@@ -97,6 +108,7 @@ export default function GRNPage() {
           product_id: parseInt(i.product_id),
           quantity: getItemBaseQty(i),
           buying_price: parseFloat(i.buying_price),
+          selling_price: getProductCostingMethod(i.product_id) === 'fifo' && i.selling_price ? parseFloat(i.selling_price) : undefined,
           expiry_date: getProductCostingMethod(i.product_id) === 'fifo' ? (i.expiry_date || undefined) : undefined,
         })),
       });
@@ -338,14 +350,28 @@ export default function GRNPage() {
                       {showExpiry && (
                         <tr className="bg-primary-50/40">
                           <td colSpan={5} className="px-3 py-2">
-                            <div className="flex items-center gap-2">
-                              <label className="text-xs font-medium text-surface-600 whitespace-nowrap">Expiry Date (optional)</label>
-                              <input
-                                type="date"
-                                className="input py-1 text-xs"
-                                value={item.expiry_date}
-                                onChange={(e) => updateItem(idx, 'expiry_date', e.target.value)}
-                              />
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <label className="text-xs font-medium text-surface-600 whitespace-nowrap">Expiry Date (optional)</label>
+                                <input
+                                  type="date"
+                                  className="input py-1 text-xs"
+                                  value={item.expiry_date}
+                                  onChange={(e) => updateItem(idx, 'expiry_date', e.target.value)}
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="text-xs font-medium text-surface-600 whitespace-nowrap">Selling Price for this batch</label>
+                                <input
+                                  type="number"
+                                  className="input py-1 text-xs font-mono w-28"
+                                  value={item.selling_price}
+                                  onChange={(e) => updateItem(idx, 'selling_price', e.target.value)}
+                                  placeholder="0.00"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </div>
                             </div>
                           </td>
                         </tr>

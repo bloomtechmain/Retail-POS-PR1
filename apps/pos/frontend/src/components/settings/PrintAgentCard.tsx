@@ -3,9 +3,12 @@ import { useToastStore } from '../../store/toastStore';
 import {
   checkPrintAgentStatus,
   getAgentDefaultPrinter,
+  getAgentPrinterConfig,
   getAgentPrinters,
   isElectronPrint,
+  ReceiptCopyDestination,
   setAgentDefaultPrinter,
+  setReceiptCopies,
 } from '../../utils/printAgent';
 
 type AgentState = 'checking' | 'offline' | 'online';
@@ -16,6 +19,10 @@ export function PrintAgentCard() {
   const [printers, setPrinters] = useState<string[]>([]);
   const [selected, setSelected] = useState('');
   const [saving, setSaving] = useState(false);
+  const [copies, setCopies] = useState<ReceiptCopyDestination[]>([]);
+  const [newCopyLabel, setNewCopyLabel] = useState('');
+  const [newCopyPrinter, setNewCopyPrinter] = useState('');
+  const [savingCopies, setSavingCopies] = useState(false);
 
   const refresh = useCallback(async () => {
     const online = await checkPrintAgentStatus();
@@ -25,9 +32,10 @@ export function PrintAgentCard() {
     }
     setState('online');
     try {
-      const [list, current] = await Promise.all([getAgentPrinters(), getAgentDefaultPrinter()]);
+      const [list, current, config] = await Promise.all([getAgentPrinters(), getAgentDefaultPrinter(), getAgentPrinterConfig()]);
       setPrinters(list);
       setSelected((prev) => current || prev || list[0] || '');
+      setCopies(config.receiptCopies);
     } catch {
       // Agent answered /health but not /printers — leave the list as-is,
       // status still reads "online".
@@ -52,6 +60,36 @@ export function PrintAgentCard() {
       toast.error('Could not save — is the Print Agent still running?');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const addCopy = async () => {
+    if (!newCopyPrinter) return;
+    setSavingCopies(true);
+    try {
+      const next = [...copies, { label: newCopyLabel.trim() || newCopyPrinter, printerName: newCopyPrinter }];
+      await setReceiptCopies(next);
+      setCopies(next);
+      setNewCopyLabel('');
+      setNewCopyPrinter('');
+      toast.success('Added — every bill now also prints there');
+    } catch {
+      toast.error('Could not save — is the Print Agent still running?');
+    } finally {
+      setSavingCopies(false);
+    }
+  };
+
+  const removeCopy = async (index: number) => {
+    setSavingCopies(true);
+    try {
+      const next = copies.filter((_, i) => i !== index);
+      await setReceiptCopies(next);
+      setCopies(next);
+    } catch {
+      toast.error('Could not save — is the Print Agent still running?');
+    } finally {
+      setSavingCopies(false);
     }
   };
 
@@ -102,6 +140,56 @@ export function PrintAgentCard() {
           <button className="btn-primary" disabled={saving || !selected} onClick={save}>
             {saving ? 'Saving...' : 'Save as Default'}
           </button>
+        </div>
+      )}
+
+      {state === 'online' && printers.length > 0 && (
+        <div className="mt-5 pt-5 border-t border-surface-100">
+          <h4 className="text-sm font-medium text-surface-800">Additional printers</h4>
+          <p className="text-surface-500 text-xs mt-0.5 mb-3">
+            Every bill also prints identically to each one below — e.g. a kitchen or store copy alongside the default receipt.
+          </p>
+
+          {copies.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {copies.map((c, i) => (
+                <div key={`${c.label}-${c.printerName}-${i}`} className="flex items-center justify-between gap-2 bg-surface-50 rounded-lg px-3 py-2 text-sm">
+                  <span><span className="font-medium text-surface-800">{c.label}</span> <span className="text-surface-400">— {c.printerName}</span></span>
+                  <button
+                    onClick={() => removeCopy(i)}
+                    disabled={savingCopies}
+                    className="text-surface-400 hover:text-red-600 text-xs font-medium"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+            <div>
+              <label className="label text-xs">Label</label>
+              <input
+                className="input py-2 text-sm"
+                value={newCopyLabel}
+                onChange={(e) => setNewCopyLabel(e.target.value)}
+                placeholder="e.g. Kitchen"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="label text-xs">Printer</label>
+              <select className="input py-2 text-sm" value={newCopyPrinter} onChange={(e) => setNewCopyPrinter(e.target.value)}>
+                <option value="">Select a printer...</option>
+                {printers.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+            <button className="btn-secondary btn-sm" disabled={savingCopies || !newCopyPrinter} onClick={addCopy}>
+              Add
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -50,6 +50,7 @@ export interface Settings {
   currency_code: string;
   currency_symbol: string;
   vat_registration_number?: string;
+  default_invoice_note?: string;
   plan_key: string;
   setup_completed: boolean;
   restaurant_mode_enabled: boolean;
@@ -109,6 +110,7 @@ export interface ProductBatch {
   quantity_received: number;
   quantity_remaining: number;
   unit_cost: number;
+  selling_price?: number;
   expiry_date?: Date;
   received_date: Date;
   created_at: Date;
@@ -257,6 +259,7 @@ export interface Coupon {
   end_date?: string;
   is_active: boolean;
   created_by?: number;
+  batch_label?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -324,6 +327,7 @@ export interface Sale {
   buyer_phone?: string;
   delivery_date?: string;
   place_of_supply?: string;
+  additional_info?: string;
   created_at: Date;
   updated_at: Date;
   items?: SaleItem[];
@@ -344,6 +348,7 @@ export interface SaleItem {
   tax_amount: number;
   subtotal: number;
   promotion_id?: number;
+  batch_id?: number;
   already_returned?: number;
   created_at: Date;
   taxes?: SaleItemTax[];
@@ -403,6 +408,13 @@ export interface CartItem {
   item_discount: number;
   tax_rate: number;
   promotion_id?: number;
+  // Set when the cashier explicitly picked a batch in the multi-batch
+  // picker (a FIFO product with more than one batch in stock) — that
+  // batch's own selling_price becomes authoritative for this line, and its
+  // stock is drawn from specifically instead of FIFO's automatic
+  // oldest/nearest-expiry-first selection. Omitted for single-batch
+  // products and non-FIFO products, where there's no real choice to make.
+  batch_id?: number;
 }
 
 export interface CreateSalePayload {
@@ -457,6 +469,7 @@ export interface GenerateVatInvoicePayload {
   buyer_phone?: string;
   delivery_date?: string;
   place_of_supply?: string;
+  additional_info?: string;
   tax_mode: 'uniform' | 'per_item';
   // Applied to every sale_item when tax_mode='uniform'.
   uniform_tax_ids?: number[];

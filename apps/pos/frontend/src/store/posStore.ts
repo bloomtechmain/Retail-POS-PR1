@@ -24,7 +24,7 @@ interface POSStore {
   total: () => number;
 
   // Actions
-  addProduct: (product: Product, qty?: number) => void;
+  addProduct: (product: Product, qty?: number, batch?: { id: number; label: string; sellingPrice: number }) => void;
   removeItem: (productId: number) => void;
   updateQty: (productId: number, qty: number) => void;
   updateItemDiscount: (productId: number, discount: number) => void;
@@ -79,9 +79,14 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     return round2(Math.max(0, subtotal - itemDiscount - billDiscount - couponDiscount + tax));
   },
 
-  addProduct: (product, qty = 1) => {
+  addProduct: (product, qty = 1, batch) => {
     set((state) => {
-      const existing = state.cart.find((i) => i.product_id === product.id);
+      // A batch-picked line only ever merges with an identical PRODUCT+BATCH
+      // pair — picking a different batch of the same product must stay a
+      // separate cart line, since each batch has its own price/stock.
+      const matches = (i: CartItem) => i.product_id === product.id && (i.batch_id || undefined) === (batch?.id || undefined);
+      const existing = state.cart.find(matches);
+      const sellingPrice = batch ? batch.sellingPrice : product.selling_price;
       const newItem: CartItem = {
         product_id: product.id,
         product_name: product.name,
@@ -89,17 +94,19 @@ export const usePOSStore = create<POSStore>((set, get) => ({
         sku: product.sku,
         unit_type: product.unit_type,
         quantity: round3(qty),
-        unit_price: round2(product.selling_price),
-        original_price: round2(product.selling_price),
+        unit_price: round2(sellingPrice),
+        original_price: round2(sellingPrice),
         cost_price: round2(product.avg_cost || product.cost_price),
         item_discount: 0,
         tax_rate: product.tax_rate || 0,
         category_id: product.category_id,
+        batch_id: batch?.id,
+        batch_label: batch?.label,
       };
 
       const updatedCart = existing
         ? state.cart.map((i) =>
-            i.product_id === product.id
+            matches(i)
               ? { ...i, quantity: round3(i.quantity + qty) }
               : i
           )
@@ -108,10 +115,10 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       // Keep prePromoCart in sync so clearing promotions doesn't lose new items
       let updatedPrePromoCart = state.prePromoCart;
       if (updatedPrePromoCart) {
-        const existingPre = updatedPrePromoCart.find((i) => i.product_id === product.id);
+        const existingPre = updatedPrePromoCart.find(matches);
         updatedPrePromoCart = existingPre
           ? updatedPrePromoCart.map((i) =>
-              i.product_id === product.id
+              matches(i)
                 ? { ...i, quantity: round3(i.quantity + qty) }
                 : i
             )

@@ -72,7 +72,22 @@ export function generateVatInvoicePdf(sale: Sale, settings: Settings) {
   row("Supplier's Name", settings.business_name || '-', "Purchaser's Name", sale.customer_name || 'Walk-in Customer');
   row('Address', settings.address || '-', 'Address', sale.buyer_address || '-');
   row('Telephone No', settings.phone || '-', 'Telephone No', sale.buyer_phone || '-');
-  row('Date of Delivery', fmtDate(sale.delivery_date), 'Place of Supply', sale.place_of_supply || '-');
+  row('Date of Supply', fmtDate(sale.delivery_date), 'Place of Supply', sale.place_of_supply || '-');
+
+  y += 2;
+
+  // ── Additional information (full width) ────────────────────────────────
+  if (sale.additional_info?.trim()) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...NAVY);
+    doc.text('Additional Information', marginX, y);
+    y += 4.6;
+    doc.setFont('helvetica', 'normal');
+    const infoLines = doc.splitTextToSize(sale.additional_info.trim(), pageWidth - marginX * 2);
+    doc.text(infoLines, marginX, y);
+    y += infoLines.length * 4.6 + 3.2;
+  }
 
   y += 4;
 

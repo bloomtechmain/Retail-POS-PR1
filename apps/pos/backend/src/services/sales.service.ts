@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg';
 import { query, transaction } from '../config/database';
 import { createError } from '../middleware/error';
-import { generateSaleNumber, generateReturnNumber, round2, round3, calculateWeightedAvgCost, consumeFifoBatches, addBatch } from '../utils/helpers';
+import { generateSaleNumber, generateReturnNumber, round2, round3, calculateWeightedAvgCost, consumeFifoBatches, consumeSpecificBatch, addBatch } from '../utils/helpers';
 import {
   Sale, CreateSalePayload, SaleReturn, ReturnSaleItemsPayload,
   CreateHeldSalePayload, CompleteHeldSalePayload,
@@ -48,13 +48,30 @@ const processCartItems = async (
     const product = productResult.rows[0];
     const avgCost = parseFloat(product.avg_cost) || 0;
 
-    // A cashier without price_override must sell at the product's real
-    // price — item-level/bill-level discounts (below) are the sanctioned
-    // way prices move, not a client-supplied unit_price. Without this
-    // check, any authenticated user could set unit_price to whatever they
-    // want, permission shown in their own token or not.
+    // A specific batch the cashier picked (POS.tsx's batch-picker modal)
+    // gets consumed from exactly that batch, not FIFO's own oldest-first
+    // selection — and if that batch carries its own selling_price, THAT is
+    // the real price for this line, not the product's shared one.
+    let costPrice: number;
+    let effectiveSellingPrice = parseFloat(product.selling_price);
+    if (product.costing_method === 'fifo' && item.batch_id) {
+      const batch = await consumeSpecificBatch(client, item.product_id, item.batch_id, item.quantity);
+      costPrice = batch.unitCost;
+      if (batch.sellingPrice !== null) effectiveSellingPrice = batch.sellingPrice;
+    } else if (product.costing_method === 'fifo') {
+      costPrice = await consumeFifoBatches(client, item.product_id, item.quantity, avgCost);
+    } else {
+      costPrice = avgCost || item.cost_price || 0;
+    }
+
+    // A cashier without price_override must sell at the product's (or
+    // selected batch's) real price — item-level/bill-level discounts
+    // (below) are the sanctioned way prices move, not a client-supplied
+    // unit_price. Without this check, any authenticated user could set
+    // unit_price to whatever they want, permission shown in their own
+    // token or not.
     if (!canOverridePrice) {
-      const realPrice = round2(parseFloat(product.selling_price));
+      const realPrice = round2(effectiveSellingPrice);
       if (round2(item.unit_price) !== realPrice) {
         throw createError(
           `You don't have permission to change the price of "${item.product_name}"`,
@@ -62,10 +79,6 @@ const processCartItems = async (
         );
       }
     }
-
-    const costPrice = product.costing_method === 'fifo'
-      ? await consumeFifoBatches(client, item.product_id, item.quantity, avgCost)
-      : (avgCost || item.cost_price || 0);
 
     // Clamp per-unit discount to the unit price — stacked promotions or a
     // manual override must never push a line's taxable amount negative.
@@ -105,6 +118,7 @@ const processCartItems = async (
       line_tax: lineTax,
       balance_before: balanceBefore,
       balance_after: balanceAfter,
+      batch_id: item.batch_id || null,
     });
   }
 
@@ -124,13 +138,13 @@ const insertSaleItems = async (
       `INSERT INTO sale_items (
          sale_id, product_id, product_name, barcode, quantity,
          unit_price, original_price, cost_price, item_discount,
-         tax_rate, tax_amount, subtotal, promotion_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         tax_rate, tax_amount, subtotal, promotion_id, batch_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         saleId, item.product_id, item.product_name, item.barcode || null, item.quantity,
         item.unit_price, item.original_price, item.cost_price, item.item_discount || 0,
         item.tax_rate || 0, item.line_tax,
-        item.line_subtotal, item.promotion_id || null,
+        item.line_subtotal, item.promotion_id || null, item.batch_id || null,
       ]
     );
 

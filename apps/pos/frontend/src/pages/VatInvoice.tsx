@@ -92,7 +92,14 @@ export default function VatInvoice() {
   const [buyerPhone, setBuyerPhone] = useState('');
   const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().slice(0, 10));
   const [placeOfSupply, setPlaceOfSupply] = useState('');
+  const [additionalInfo, setAdditionalInfo] = useState('');
   const [generating, setGenerating] = useState(false);
+
+  // Pre-fill from the business's default note (editable per invoice) once
+  // settings arrive — doesn't clobber anything the cashier's already typed.
+  useEffect(() => {
+    if (settings?.default_invoice_note) setAdditionalInfo((prev) => prev || settings.default_invoice_note || '');
+  }, [settings]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -184,6 +191,7 @@ export default function VatInvoice() {
         buyer_phone: buyerPhone || undefined,
         delivery_date: deliveryDate || undefined,
         place_of_supply: placeOfSupply || undefined,
+        additional_info: additionalInfo || undefined,
         tax_mode: taxMode,
         uniform_tax_ids: taxMode === 'uniform' ? uniformTaxIds : undefined,
         item_taxes: taxMode === 'per_item'
@@ -335,13 +343,17 @@ export default function VatInvoice() {
                   <input className="input py-2 text-sm" value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} />
                 </div>
                 <div>
-                  <label className="label text-xs">Date of Delivery</label>
+                  <label className="label text-xs">Date of Supply</label>
                   <input type="date" className="input py-2 text-sm" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
                 </div>
               </div>
               <div>
                 <label className="label text-xs">Place of Supply</label>
                 <input className="input py-2 text-sm" value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value)} />
+              </div>
+              <div>
+                <label className="label text-xs">Additional Information</label>
+                <textarea className="input py-2 text-sm" rows={2} value={additionalInfo} onChange={(e) => setAdditionalInfo(e.target.value)} />
               </div>
 
               <div className="border-t border-surface-100 pt-3 flex justify-between text-lg font-bold text-surface-900">
