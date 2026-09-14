@@ -110,6 +110,17 @@ export const setCustomerActive = async (req: StaffAuthRequest, res: Response, ne
   } catch (err) { next(err); }
 };
 
+export const resetCustomerPassword = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const data = await staffService.resetCustomerPassword(
+      parseInt(req.params.id, 10),
+      { staff_id: req.staff!.staff_id, role: req.staff!.role },
+      req.body.newPassword
+    );
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
 export const deleteCustomer = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
   try {
     await staffService.permanentlyDeleteCustomer(parseInt(req.params.id, 10));

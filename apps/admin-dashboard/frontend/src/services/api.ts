@@ -126,6 +126,11 @@ export const deleteCustomerPermanently = async (id: number): Promise<void> => {
   await api.delete(`/staff/customers/${id}`);
 };
 
+export const resetCustomerPassword = async (id: number, newPassword: string): Promise<{ email: string }> => {
+  const res = await api.patch(`/staff/customers/${id}/reset-password`, { newPassword });
+  return res.data.data;
+};
+
 export const listAgents = async (): Promise<Agent[]> => {
   const res = await api.get('/staff/agents');
   return res.data.data;

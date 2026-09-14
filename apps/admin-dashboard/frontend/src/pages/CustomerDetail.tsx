@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   fetchCustomer, reactivateCustomer, upgradeCustomerPackage, fetchPlans,
-  setCustomerActive, deleteCustomerPermanently, Plan, PlatformCustomer,
+  setCustomerActive, deleteCustomerPermanently, resetCustomerPassword, Plan, PlatformCustomer,
 } from '../services/api';
 import { PageLoader } from '../components/PageLoader';
 import { useAuth } from '../AuthContext';
@@ -44,6 +44,14 @@ export default function CustomerDetail() {
   const [selectedPlanKey, setSelectedPlanKey] = useState('');
   const [savingPackage, setSavingPackage] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // No "view password" is possible — passwords are one-way hashed on
+  // pos-backend and never stored anywhere retrievable. Resetting to a new,
+  // known value (shown once, right here) is the only real recovery path.
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [passwordResetResult, setPasswordResetResult] = useState<{ email: string; password: string } | null>(null);
+  const [passwordError, setPasswordError] = useState('');
 
   const copy = (field: string, value: string) => {
     navigator.clipboard.writeText(value);
@@ -119,6 +127,35 @@ export default function CustomerDetail() {
       setError(err?.response?.data?.message || 'Failed to change status.');
     } finally {
       setTogglingActive(false);
+    }
+  };
+
+  const generatePassword = () => {
+    // No ambiguous characters (0/O, 1/l/I) — this gets read aloud or typed
+    // by hand over the phone often enough that it matters.
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let out = '';
+    for (let i = 0; i < 10; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    setNewPasswordInput(out);
+  };
+
+  const handleResetPassword = async () => {
+    if (!id || !newPasswordInput) return;
+    if (newPasswordInput.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return;
+    }
+    if (!confirm("Reset this customer's login password? Their current password will stop working immediately.")) return;
+    setPasswordError('');
+    setResettingPassword(true);
+    try {
+      const result = await resetCustomerPassword(Number(id), newPasswordInput);
+      setPasswordResetResult({ email: result.email, password: newPasswordInput });
+      setNewPasswordInput('');
+    } catch (err: any) {
+      setPasswordError(err?.response?.data?.message || 'Failed to reset password.');
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -283,6 +320,67 @@ export default function CustomerDetail() {
           </div>
         )}
       </div>
+
+      {customer.delivery_type === 'online' && (
+        <div className="card p-6 mt-6">
+          <div className="text-sm font-semibold text-surface-900 mb-1">Login Access</div>
+          <p className="text-xs text-surface-500 mb-3">
+            Passwords are encrypted and can't be viewed — if the customer forgot theirs, reset it to a new
+            one here and pass it along.
+          </p>
+
+          {passwordResetResult ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-surface-500">Login email</span>
+                <span className="font-medium text-surface-900">{passwordResetResult.email}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-surface-500">New password</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-mono font-medium text-surface-900">{passwordResetResult.password}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                    onClick={() => copy('newpw', passwordResetResult.password)}
+                  >
+                    {copiedField === 'newpw' ? 'Copied!' : 'Copy'}
+                  </button>
+                </span>
+              </div>
+              <button
+                type="button"
+                className="text-xs text-surface-500 hover:text-surface-700 font-medium pt-1"
+                onClick={() => setPasswordResetResult(null)}
+              >
+                Reset again
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+              <div className="flex-1">
+                <label className="label text-xs">New password</label>
+                <input
+                  className="input"
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="At least 6 characters"
+                />
+              </div>
+              <button type="button" className="btn-secondary" onClick={generatePassword}>Generate</button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={resettingPassword || !newPasswordInput}
+                onClick={handleResetPassword}
+              >
+                {resettingPassword ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </div>
+          )}
+          {passwordError && <p className="text-sm text-red-600 mt-2">{passwordError}</p>}
+        </div>
+      )}
 
       {isAdmin && (
         <div className="card p-6 mt-6 border-2 border-red-200 bg-red-50/30">

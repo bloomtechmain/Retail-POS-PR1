@@ -24,4 +24,8 @@ router.patch('/:id/active', requireInternalApiKey, tenantController.setActive);
 // admin-dashboard side before this is ever called).
 router.delete('/:id', requireInternalApiKey, tenantController.remove);
 
+// Server-to-server only — resets a customer's login password from the
+// admin dashboard's customer detail page.
+router.patch('/:id/reset-password', requireInternalApiKey, tenantController.resetPassword);
+
 export default router;

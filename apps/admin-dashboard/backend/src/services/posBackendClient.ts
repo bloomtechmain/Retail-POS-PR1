@@ -78,6 +78,26 @@ export const setTenantActive = async (tenantId: number, isActive: boolean): Prom
   }
 };
 
+// Resets the tenant's login password to a new, known value — the only
+// recovery path when an agent/customer has forgotten it, since passwords
+// are one-way hashed and can never be viewed.
+export const resetTenantPassword = async (tenantId: number, newPassword: string): Promise<{ email: string }> => {
+  if (!INTERNAL_API_KEY) {
+    throw createError('Online provisioning is not configured on this server (INTERNAL_API_KEY missing).', 500);
+  }
+  const res = await fetch(`${POS_BACKEND_URL}/api/tenants/${tenantId}/reset-password`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-Internal-Api-Key': INTERNAL_API_KEY },
+    body: JSON.stringify({ newPassword }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    throw createError(body.message || 'Could not reset the password on the POS backend.', res.status);
+  }
+  const data = (await res.json()) as { data: { email: string } };
+  return data.data;
+};
+
 // Permanent delete — drops the tenant's entire Postgres schema. Irreversible.
 export const deleteTenant = async (tenantId: number): Promise<void> => {
   if (!INTERNAL_API_KEY) {

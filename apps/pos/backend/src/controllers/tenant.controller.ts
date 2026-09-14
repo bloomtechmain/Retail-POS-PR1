@@ -62,3 +62,15 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
     res.json({ success: true });
   } catch (err) { next(err); }
 };
+
+// Internal, server-to-server only — agent/admin resets a customer's login
+// password from the admin dashboard's customer detail page, when the
+// customer (or the agent on their behalf) has forgotten it. Passwords are
+// one-way hashed, so this is the only real recovery path — there is no
+// "view password" to fall back to.
+export const resetPassword = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await tenantService.resetTenantAdminPassword(parseInt(req.params.id, 10), req.body.newPassword);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+};

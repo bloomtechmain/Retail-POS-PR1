@@ -3,7 +3,7 @@ import { query } from '../config/database';
 import { createError } from '../middleware/error';
 import { signStaffToken } from '../utils/jwt';
 import { StaffAuthPayload } from '../types';
-import { provisionOnlineTenant, updateTenantPlan, setTenantActive, deleteTenant } from './posBackendClient';
+import { provisionOnlineTenant, updateTenantPlan, setTenantActive, resetTenantPassword, deleteTenant } from './posBackendClient';
 import { generateLicense, setLicenseActive, deleteLicense } from './licenseServerClient';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -344,6 +344,30 @@ export const setCustomerActive = async (
     [isActive, customerId]
   );
   return withSubscriptionStatus(result.rows[0]);
+};
+
+// Recovers a customer's login when they (or the agent handling their
+// account) have forgotten the password — there is no "view password"
+// because it's one-way hashed on pos-backend, so resetting to a new, known
+// value is the only real recovery path. Online only: offline customers'
+// credentials live inside their local Electron install and there's no live
+// connection back here to push a change to.
+export const resetCustomerPassword = async (
+  customerId: number,
+  staff: { staff_id: number; role: 'admin' | 'agent' },
+  newPassword: string
+): Promise<{ email: string }> => {
+  const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
+  if (existing.rows.length === 0) throw createError('Customer not found', 404);
+  const row = existing.rows[0];
+  if (staff.role !== 'admin' && row.agent_id !== staff.staff_id) {
+    throw createError('You can only reset the password for customers you created', 403);
+  }
+  if (row.delivery_type !== 'online' || !row.tenant_id) {
+    throw createError('Password reset is only available for online (hosted) customers', 400);
+  }
+
+  return resetTenantPassword(row.tenant_id, newPassword);
 };
 
 // Irreversible. Admin-only (enforced at the route). Destroys the customer's

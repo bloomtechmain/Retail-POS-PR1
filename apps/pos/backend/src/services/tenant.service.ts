@@ -6,6 +6,7 @@ import { TENANT_SCHEMA_STATEMENTS } from '../config/tenantSchema';
 import { CATEGORY_TEMPLATES } from '../data/categoryTemplates';
 import { isValidPlanKey, DEFAULT_PLAN_KEY, FeatureKey } from '../data/plans';
 import { runWithTenant } from '../config/tenantContext';
+import { markPasswordChanged } from '../utils/tokenRevocation';
 
 // Starter data for a freshly-created sandbox — enough to click around and
 // try a sale immediately, not a full demo of every feature. Spans piece/kg/
@@ -169,6 +170,33 @@ export const updateTenantPlan = async (
 export const setTenantActive = async (tenantId: number, isActive: boolean): Promise<void> => {
   const result = await query('UPDATE public.tenants SET is_active = $1 WHERE id = $2', [isActive, tenantId]);
   if (result.rowCount === 0) throw createError('Tenant not found', 404);
+};
+
+// Lets an agent/admin recover a customer's account when they've forgotten
+// (or never actually learned, e.g. the customer changed it themselves via
+// Setup.tsx after creation) their login password — there is no "view
+// password" because passwords are one-way hashed, so resetting to a new,
+// known value is the only real recovery path. Targets the tenant's
+// original admin account the same way the login flow's preset-credential
+// path does (oldest admin user, never deleted) rather than requiring the
+// caller to know a specific user id.
+export const resetTenantAdminPassword = async (tenantId: number, newPassword: string): Promise<{ email: string }> => {
+  if (!newPassword || newPassword.length < 6) throw createError('Password must be at least 6 characters', 400);
+
+  const userResult = await query(
+    `SELECT id, email FROM public.users
+     WHERE tenant_id = $1 AND deleted_at IS NULL
+     ORDER BY id ASC LIMIT 1`,
+    [tenantId]
+  );
+  if (userResult.rows.length === 0) throw createError('No login found for this tenant', 404);
+  const { id: userId, email } = userResult.rows[0];
+
+  const hashed = await bcrypt.hash(newPassword, 10);
+  await query('UPDATE public.users SET password = $1, updated_at = NOW() WHERE id = $2', [hashed, userId]);
+  markPasswordChanged(userId);
+
+  return { email };
 };
 
 // Irreversibly destroys a tenant: every product/sale/GRN/etc. they ever

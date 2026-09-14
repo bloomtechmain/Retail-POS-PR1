@@ -19,6 +19,7 @@ router.get('/customers/:id', staffController.customerDetail);
 router.post('/customers/:id/reactivate', staffController.reactivateCustomer);
 router.patch('/customers/:id/package', staffController.upgradeCustomerPackage);
 router.patch('/customers/:id/status', staffController.setCustomerActive);
+router.patch('/customers/:id/reset-password', staffController.resetCustomerPassword);
 router.delete('/customers/:id', requireStaffRole('admin'), staffController.deleteCustomer);
 
 router.get('/dashboard', staffController.dashboard);
