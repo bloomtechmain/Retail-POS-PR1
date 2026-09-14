@@ -3,6 +3,8 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { execFile } = require('child_process');
 const express = require('express');
 const cors = require('cors');
 
@@ -56,9 +58,11 @@ function readConfig() {
       defaultPrinter: parsed.defaultPrinter || null,
       printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
       receiptCopies: Array.isArray(parsed.receiptCopies) ? parsed.receiptCopies : [],
+      paperWidth: parsed.paperWidth === '58mm' ? '58mm' : '80mm',
+      receiptTemplate: parsed.receiptTemplate === 'compact' || parsed.receiptTemplate === 'detailed' ? parsed.receiptTemplate : 'standard',
     };
   } catch {
-    return { defaultPrinter: null, printers: {}, receiptCopies: [] };
+    return { defaultPrinter: null, printers: {}, receiptCopies: [], paperWidth: '80mm', receiptTemplate: 'standard' };
   }
 }
 
@@ -91,26 +95,35 @@ async function listPrinters() {
   }
 }
 
-// Some printer types (notably virtual "print to PDF/XPS" writers) never
-// invoke the print() callback under silent:true — Windows still wants an
-// interactive save-location dialog that silent printing can't show, so the
-// callback just never fires. A hard timeout turns that into a clear error
-// instead of hanging the caller forever. Real physical/thermal printers
-// don't have this problem — there's no destination to pick.
-const PRINT_TIMEOUT_MS = 20000;
+// A RAW-datatype print job bypasses the Windows print driver's own
+// rendering entirely — the bytes go straight to the port (USB/etc.), which
+// is what lets ESC/POS command bytes reach a thermal printer's firmware
+// unmodified regardless of driver (see raw-print-helper.ps1). This
+// replaced an earlier webContents.print()-based approach that rendered an
+// HTML receipt through the printer's own driver — fine for normal
+// printers, but many thermal receipt printers' drivers (often a bare
+// "Generic / Text Only" driver) can't rasterize arbitrary HTML/CSS and
+// produced garbled output instead of a real receipt.
+const PRINT_TIMEOUT_MS = 10000;
 
-function printHtml(html, deviceName) {
+function getRawPrintHelperPath() {
+  return path.join(__dirname, 'raw-print-helper.ps1');
+}
+
+function printRaw(buffer, deviceName) {
   return new Promise((resolve, reject) => {
     if (!deviceName) {
       reject(new Error('No default printer configured. Open the Print Agent settings and pick a printer first.'));
       return;
     }
 
-    let settled = false;
-    const win = createHiddenWindow();
+    const tempFile = path.join(os.tmpdir(), `bloompos-print-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+    fs.writeFileSync(tempFile, buffer);
     const cleanup = () => {
-      if (!win.isDestroyed()) win.close();
+      try { fs.unlinkSync(tempFile); } catch {}
     };
+
+    let settled = false;
     const settle = (fn, value) => {
       if (settled) return;
       settled = true;
@@ -118,24 +131,26 @@ function printHtml(html, deviceName) {
       cleanup();
       fn(value);
     };
+
+    const child = execFile('powershell.exe', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass',
+      '-File', getRawPrintHelperPath(),
+      '-PrinterName', deviceName,
+      '-DataFile', tempFile,
+    ], (error, stdout, stderr) => {
+      if (error) {
+        settle(reject, new Error(stderr || error.message));
+        return;
+      }
+      const out = String(stdout || '').trim();
+      if (out.startsWith('OK:')) settle(resolve);
+      else settle(reject, new Error(out || 'Print failed'));
+    });
+
     const timer = setTimeout(() => {
-      settle(reject, new Error('Print timed out — this printer may need an interactive dialog that silent printing can\'t show.'));
+      child.kill();
+      settle(reject, new Error('Print timed out — the printer may be offline.'));
     }, PRINT_TIMEOUT_MS);
-
-    win.webContents.once('did-finish-load', () => {
-      win.webContents.print(
-        { silent: true, deviceName, printBackground: true, margins: { marginType: 'none' } },
-        (success, failureReason) => {
-          if (success) settle(resolve);
-          else settle(reject, new Error(failureReason || 'Print failed'));
-        }
-      );
-    });
-    win.webContents.once('did-fail-load', (_event, _code, description) => {
-      settle(reject, new Error(`Failed to load receipt content: ${description}`));
-    });
-
-    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   });
 }
 
@@ -177,7 +192,9 @@ function startServer() {
     const receiptCopies = req.body && Array.isArray(req.body.receiptCopies)
       ? req.body.receiptCopies.filter((c) => c && c.printerName).map((c) => ({ label: String(c.label || ''), printerName: String(c.printerName) }))
       : [];
-    const config = { defaultPrinter, printers, receiptCopies };
+    const paperWidth = req.body && req.body.paperWidth === '58mm' ? '58mm' : '80mm';
+    const receiptTemplate = req.body && (req.body.receiptTemplate === 'compact' || req.body.receiptTemplate === 'detailed') ? req.body.receiptTemplate : 'standard';
+    const config = { defaultPrinter, printers, receiptCopies, paperWidth, receiptTemplate };
     writeConfig(config);
     broadcastConfig(config);
     res.json(config);
@@ -190,18 +207,19 @@ function startServer() {
   // default printer and every configured `receiptCopies` destination at
   // once (fan-out, e.g. a kitchen/store copy of the whole receipt).
   expressApp.post('/print', async (req, res) => {
-    const html = req.body && req.body.html;
+    const dataBase64 = req.body && req.body.dataBase64;
     const target = req.body && req.body.target;
-    if (!html || typeof html !== 'string') {
-      res.status(400).json({ success: false, error: 'Missing html' });
+    if (!dataBase64 || typeof dataBase64 !== 'string') {
+      res.status(400).json({ success: false, error: 'Missing dataBase64' });
       return;
     }
+    const buffer = Buffer.from(dataBase64, 'base64');
     const config = readConfig();
 
     if (target) {
       try {
         const deviceName = config.printers[target] || config.defaultPrinter;
-        await printHtml(html, deviceName);
+        await printRaw(buffer, deviceName);
         res.json({ success: true });
       } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -216,7 +234,7 @@ function startServer() {
       res.status(500).json({ success: false, error: 'No default printer configured. Open the Print Agent settings and pick a printer first.' });
       return;
     }
-    const results = await Promise.allSettled(destinations.map((deviceName) => printHtml(html, deviceName)));
+    const results = await Promise.allSettled(destinations.map((deviceName) => printRaw(buffer, deviceName)));
     const failures = results.filter((r) => r.status === 'rejected');
     if (failures.length === results.length) {
       res.status(500).json({ success: false, error: failures[0].reason?.message || 'Print failed' });
@@ -283,10 +301,9 @@ ipcMain.handle('get-printers', () => listPrinters());
 ipcMain.handle('get-config', () => readConfig());
 ipcMain.handle('save-config', (_event, config) => {
   // The tray settings window only ever edits defaultPrinter — preserve
-  // whatever station->printer map and receipt-copy destinations are
-  // already on disk rather than wiping them.
+  // everything else already on disk rather than wiping it.
   const existing = readConfig();
-  const next = { defaultPrinter: (config && config.defaultPrinter) || null, printers: existing.printers, receiptCopies: existing.receiptCopies };
+  const next = { ...existing, defaultPrinter: (config && config.defaultPrinter) || null };
   writeConfig(next);
   return next;
 });

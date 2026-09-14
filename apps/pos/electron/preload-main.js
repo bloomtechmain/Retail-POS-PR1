@@ -8,7 +8,9 @@ contextBridge.exposeInMainWorld('electronPrintAPI', {
   getPrinters: () => ipcRenderer.invoke('printer:list'),
   getConfig: () => ipcRenderer.invoke('printer:get-config'),
   saveConfig: (config) => ipcRenderer.invoke('printer:save-config', config),
-  print: (html, target) => ipcRenderer.invoke('printer:print', html, target),
+  // `bytes` is a raw ESC/POS command buffer (Uint8Array) — structured
+  // clone carries it through IPC unchanged.
+  print: (bytes, target) => ipcRenderer.invoke('printer:print', bytes, target),
 });
 
 // Only meaningful on a Terminal machine — undefined/unused on a standalone

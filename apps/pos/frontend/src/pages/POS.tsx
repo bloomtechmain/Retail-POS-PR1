@@ -13,7 +13,8 @@ import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { useSettingsStore } from '../store/settingsStore';
 import { getUnitMeta, formatQuantity, getReceiveUnitOptions, convertToBaseUnit, convertFromBaseUnit } from '../utils/units';
-import { buildPrintableDocument, buildKotDocument, isElectronPrint, sendPrintJob } from '../utils/printAgent';
+import { isElectronPrint, sendPrintJob, getReceiptPrintOptions } from '../utils/printAgent';
+import { buildReceiptEscPos, buildKotEscPos } from '../utils/receiptTemplates';
 
 const promoDesc = (p: Promotion) => {
   const val = parseFloat(String(p.discount_value ?? 0));
@@ -294,10 +295,12 @@ function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => voi
   const [showSetupBanner, setShowSetupBanner] = useState(false);
 
   const handlePrint = async () => {
+    if (!sale) return;
     setIsPrinting(true);
     try {
-      const html = await buildPrintableDocument('receipt');
-      const result = await sendPrintJob(html);
+      const { charsPerLine, template } = await getReceiptPrintOptions();
+      const bytes = buildReceiptEscPos(sale, sale.items || [], settings, template, charsPerLine);
+      const result = await sendPrintJob(bytes);
       if (result.success) {
         setShowSetupBanner(false);
         toast.success('Receipt sent to printer');
@@ -1201,15 +1204,16 @@ export default function POS() {
           if (!groups.has(key)) groups.set(key, { stationName: it.station_name || 'Kitchen', items: [] });
           groups.get(key)!.items.push(it);
         }
+        const { charsPerLine } = await getReceiptPrintOptions();
         for (const [key, group] of groups) {
-          const html = buildKotDocument({
+          const bytes = buildKotEscPos({
             saleNumber: String(saleId),
             stationName: group.stationName,
             orderType: restaurant.orderType,
             tableName: restaurant.tableName || undefined,
             items: group.items.map((i) => ({ product_name: i.product_name, quantity: Number(i.quantity) })),
-          });
-          await sendPrintJob(html, key === 'unassigned' ? undefined : Number(key));
+          }, charsPerLine);
+          await sendPrintJob(bytes, key === 'unassigned' ? undefined : Number(key));
         }
         toast.success('Sent to kitchen');
       }

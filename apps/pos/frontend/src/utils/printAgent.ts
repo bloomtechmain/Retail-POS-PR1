@@ -12,6 +12,9 @@ export interface ReceiptCopyDestination {
   printerName: string;
 }
 
+export type PaperWidth = '58mm' | '80mm';
+export type ReceiptTemplateName = 'standard' | 'compact' | 'detailed';
+
 interface PrinterConfig {
   defaultPrinter: string | null;
   // Kitchen-station id -> printer name, for KOT routing (content-SPLITTING
@@ -22,13 +25,20 @@ interface PrinterConfig {
   // printer (fan-out — e.g. a kitchen or store copy of the whole receipt).
   // Empty on installs that predate this — always present, never undefined.
   receiptCopies: ReceiptCopyDestination[];
+  // Thermal roll width, drives how many characters fit per printed line
+  // (see charsPerLine in getReceiptPrintOptions). Installs that predate
+  // this backfill to '80mm', the more common counter-printer size.
+  paperWidth: PaperWidth;
+  // Which ESC/POS layout (receiptTemplates.ts) to print with. Installs
+  // that predate this backfill to 'standard'.
+  receiptTemplate: ReceiptTemplateName;
 }
 
 interface ElectronPrintAPI {
   getPrinters: () => Promise<string[]>;
   getConfig: () => Promise<PrinterConfig>;
   saveConfig: (config: PrinterConfig) => Promise<PrinterConfig>;
-  print: (html: string, target?: string) => Promise<{ success: boolean; error?: string }>;
+  print: (bytes: Uint8Array, target?: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {
@@ -88,7 +98,7 @@ export async function getAgentDefaultPrinter(): Promise<string | null> {
 
 export async function setAgentDefaultPrinter(defaultPrinter: string): Promise<void> {
   const current = await getAgentPrinterConfig();
-  await saveAgentPrinterConfig({ defaultPrinter, printers: current.printers, receiptCopies: current.receiptCopies });
+  await saveAgentPrinterConfig({ ...current, defaultPrinter });
 }
 
 export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
@@ -96,7 +106,13 @@ export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
   const res = await agentFetch('/config');
   if (!res.ok) throw new Error('Could not reach Print Agent');
   const data = await res.json();
-  return { defaultPrinter: data.defaultPrinter || null, printers: data.printers || {}, receiptCopies: data.receiptCopies || [] };
+  return {
+    defaultPrinter: data.defaultPrinter || null,
+    printers: data.printers || {},
+    receiptCopies: data.receiptCopies || [],
+    paperWidth: data.paperWidth === '58mm' ? '58mm' : '80mm',
+    receiptTemplate: data.receiptTemplate === 'compact' || data.receiptTemplate === 'detailed' ? data.receiptTemplate : 'standard',
+  };
 }
 
 async function saveAgentPrinterConfig(config: PrinterConfig): Promise<void> {
@@ -119,29 +135,62 @@ export async function setStationPrinter(stationId: number, printerName: string):
   const printers = { ...current.printers };
   if (printerName) printers[String(stationId)] = printerName;
   else delete printers[String(stationId)];
-  await saveAgentPrinterConfig({ defaultPrinter: current.defaultPrinter, printers, receiptCopies: current.receiptCopies });
+  await saveAgentPrinterConfig({ ...current, printers });
 }
 
 // Replaces the whole "extra copy" destination list — e.g. after adding or
 // removing a kitchen/store copy in Settings.
 export async function setReceiptCopies(receiptCopies: ReceiptCopyDestination[]): Promise<void> {
   const current = await getAgentPrinterConfig();
-  await saveAgentPrinterConfig({ defaultPrinter: current.defaultPrinter, printers: current.printers, receiptCopies });
+  await saveAgentPrinterConfig({ ...current, receiptCopies });
+}
+
+export async function setPaperWidth(paperWidth: PaperWidth): Promise<void> {
+  const current = await getAgentPrinterConfig();
+  await saveAgentPrinterConfig({ ...current, paperWidth });
+}
+
+export async function setReceiptTemplate(receiptTemplate: ReceiptTemplateName): Promise<void> {
+  const current = await getAgentPrinterConfig();
+  await saveAgentPrinterConfig({ ...current, receiptTemplate });
+}
+
+// Thermal printers print a fixed number of characters per line depending on
+// roll width — 32 for 58mm, 48 for 80mm at the printer's default font.
+// Every ESC/POS template call site needs both this and which template is
+// selected, so callers fetch config once up front via this helper rather
+// than each reaching into getAgentPrinterConfig() separately.
+export async function getReceiptPrintOptions(): Promise<{ charsPerLine: number; template: ReceiptTemplateName }> {
+  const config = await getAgentPrinterConfig();
+  return {
+    charsPerLine: config.paperWidth === '58mm' ? 32 : 48,
+    template: config.receiptTemplate,
+  };
 }
 
 // `target` is a kitchen-station id — omitted, prints to the one receipt
 // printer exactly as before; passed, routes to that station's configured
 // printer (falling back to the receipt printer if the station has none set).
-export async function sendPrintJob(html: string, target?: number): Promise<{ success: boolean; error?: string }> {
+// `bytes` is a raw ESC/POS command buffer (see escpos.ts/receiptTemplates.ts)
+// — sent as a RAW print job so the printer's own firmware renders it
+// directly, bypassing the Windows driver's (often broken, for thermal
+// printers) HTML/GDI rendering entirely.
+export async function sendPrintJob(bytes: Uint8Array, target?: number): Promise<{ success: boolean; error?: string }> {
   const targetKey = target != null ? String(target) : undefined;
   if (isElectronPrint()) {
-    return window.electronPrintAPI!.print(html, targetKey);
+    return window.electronPrintAPI!.print(bytes, targetKey);
   }
   try {
+    // JSON can't carry raw binary — base64-encode for the HTTP hop to the
+    // Print Agent; the Electron IPC branch above sends the Uint8Array
+    // directly (structured clone handles typed arrays natively).
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const dataBase64 = btoa(binary);
     const res = await agentFetch('/print', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html, target: targetKey }),
+      body: JSON.stringify({ dataBase64, target: targetKey }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { success: false, error: data.error || 'Print failed' };
@@ -149,75 +198,4 @@ export async function sendPrintJob(html: string, target?: number): Promise<{ suc
   } catch {
     return { success: false, error: 'Print Agent is not running' };
   }
-}
-
-// Builds a fully self-contained HTML document from an on-screen element,
-// inlining every stylesheet currently loaded on the page (Tailwind's
-// compiled CSS included) — the agent renders this in an isolated window
-// with no access to the app's own stylesheets, so the styling has to travel
-// with the markup.
-export async function buildPrintableDocument(elementId: string): Promise<string> {
-  const el = document.getElementById(elementId);
-  if (!el) throw new Error(`Element #${elementId} not found`);
-
-  const cssParts: string[] = [];
-  for (const node of Array.from(document.querySelectorAll('style'))) {
-    cssParts.push(node.textContent || '');
-  }
-  for (const link of Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[]) {
-    try {
-      const res = await fetch(link.href);
-      if (res.ok) cssParts.push(await res.text());
-    } catch {
-      // Best-effort — a missing stylesheet just means slightly plainer output.
-    }
-  }
-
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>${cssParts.join('\n')}</style>
-</head>
-<body>${el.outerHTML}</body>
-</html>`;
-}
-
-// KOT tickets are built from API response data (a held order's items,
-// possibly split across several stations), not a single on-screen element —
-// so unlike buildPrintableDocument this is a plain string builder, not a
-// DOM read.
-export function buildKotDocument(params: {
-  saleNumber: string;
-  stationName: string;
-  orderType: string;
-  tableName?: string;
-  items: Array<{ product_name: string; quantity: number }>;
-}): string {
-  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
-  const rows = params.items
-    .map((i) => `<div class="row"><span class="qty">${i.quantity}×</span><span class="name">${esc(i.product_name)}</span></div>`)
-    .join('');
-
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-  body { font-family: monospace; font-size: 14px; width: 280px; margin: 0; padding: 8px; }
-  h1 { font-size: 16px; text-align: center; margin: 0 0 4px; }
-  .meta { text-align: center; font-size: 12px; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom: 6px; }
-  .row { display: flex; gap: 6px; padding: 3px 0; font-size: 15px; font-weight: bold; }
-  .qty { flex-shrink: 0; }
-</style>
-</head>
-<body>
-<h1>KOT — ${esc(params.stationName)}</h1>
-<div class="meta">
-  ${esc(params.orderType)}${params.tableName ? ` · ${esc(params.tableName)}` : ''}<br/>
-  #${esc(params.saleNumber)} · ${new Date().toLocaleTimeString()}
-</div>
-${rows}
-</body>
-</html>`;
 }
