@@ -10,6 +10,7 @@ export default function Agents() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,7 +70,23 @@ export default function Agents() {
             </div>
             <div>
               <label className="label">Password</label>
-              <input className="input" type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
+              <div className="relative">
+                <input
+                  className="input pr-10"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600 text-xs font-medium"
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </div>
             {error && <p className="sm:col-span-3 text-sm text-red-600">{error}</p>}
             <div className="sm:col-span-3">

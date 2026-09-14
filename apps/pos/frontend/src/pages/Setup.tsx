@@ -98,6 +98,7 @@ export default function Setup() {
                 <label className="label">Login Email</label>
                 <input
                   type="email"
+                  autoComplete="username"
                   className="input"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
@@ -105,8 +106,13 @@ export default function Setup() {
               </div>
               <div>
                 <label className="label">New Password</label>
+                {/* new-password, never current-password/unset — this is a
+                    set-your-own-password field, and without the correct
+                    token the browser can offer to autofill (and its own
+                    reveal-eye then expose) a different saved credential. */}
                 <input
                   type="password"
+                  autoComplete="new-password"
                   className="input"
                   placeholder="Leave blank to keep current"
                   value={newPassword}
@@ -117,6 +123,7 @@ export default function Setup() {
                 <label className="label">Confirm Password</label>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   className="input"
                   placeholder="Confirm new password"
                   value={confirmPassword}

@@ -287,6 +287,7 @@ export default function SettingsPage() {
                   <label className="label">Login Email</label>
                   <input
                     type="email"
+                    autoComplete="username"
                     className="input"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
@@ -296,6 +297,7 @@ export default function SettingsPage() {
                   <label className="label">Current Password</label>
                   <input
                     type="password"
+                    autoComplete="current-password"
                     className="input"
                     placeholder="Required to set a new password"
                     value={currentPassword}
@@ -304,8 +306,12 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <label className="label">New Password</label>
+                  {/* new-password (not current-password) — otherwise the
+                      browser can autofill, and its reveal-eye then expose,
+                      a DIFFERENT saved credential into this field. */}
                   <input
                     type="password"
+                    autoComplete="new-password"
                     className="input"
                     placeholder="Leave blank to keep current"
                     value={newPassword}
@@ -316,6 +322,7 @@ export default function SettingsPage() {
                   <label className="label">Confirm New Password</label>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     className="input"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}

@@ -194,7 +194,13 @@ export default function Users() {
           </div>
           <div>
             <label className="label">{isEditing ? t.users_password_edit : t.users_password}</label>
-            <input type="password" className="input" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} placeholder={isEditing ? t.users_password_placeholder_edit : t.users_password_placeholder_new} />
+            {/* autoComplete="new-password" (not left unset, and never
+                "current-password") stops the browser from silently
+                autofilling — and its own reveal-eye icon then exposing — a
+                DIFFERENT staff member's previously-saved password into this
+                "set a password" field, which a bare type="password" input
+                is otherwise a prime target for. */}
+            <input type="password" autoComplete="new-password" className="input" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} placeholder={isEditing ? t.users_password_placeholder_edit : t.users_password_placeholder_new} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -206,7 +212,7 @@ export default function Users() {
             </div>
             <div>
               <label className="label">{t.users_pin}</label>
-              <input type="password" className="input font-mono" value={form.pin} onChange={(e) => setForm(f => ({ ...f, pin: e.target.value }))} placeholder={t.users_pin_placeholder} maxLength={6} />
+              <input type="password" autoComplete="off" className="input font-mono" value={form.pin} onChange={(e) => setForm(f => ({ ...f, pin: e.target.value }))} placeholder={t.users_pin_placeholder} maxLength={6} />
             </div>
           </div>
           <div>

@@ -183,6 +183,7 @@ function App() {
               <input
                 className="input"
                 type="email"
+                autoComplete="username"
                 value={adminEmail}
                 onChange={(e) => setAdminEmail(e.target.value)}
                 placeholder="you@business.com"
@@ -194,6 +195,7 @@ function App() {
                 <input
                   className="input"
                   type="password"
+                  autoComplete="new-password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   placeholder="At least 6 characters"
@@ -204,6 +206,7 @@ function App() {
                 <input
                   className="input"
                   type="password"
+                  autoComplete="new-password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter password"

@@ -42,6 +42,7 @@ export default function CreateCustomer() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const copy = (field: string, value: string) => {
     navigator.clipboard.writeText(value);
@@ -270,7 +271,30 @@ export default function CreateCustomer() {
           </div>
           <div className="sm:col-span-2">
             <label className="label">Login password</label>
-            <input className="input" type="text" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} placeholder="At least 6 characters" />
+            {/* Masked by default with an admin-controlled reveal toggle,
+                rather than plain type="text" — this field is visible on
+                screen the whole time otherwise, and without
+                autoComplete="new-password" a bare password-type input here
+                is exactly what lets a browser offer to autofill (and its
+                own reveal-eye then expose) a DIFFERENT customer's
+                previously-saved password instead of the one just typed. */}
+            <div className="relative">
+              <input
+                className="input pr-10"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="At least 6 characters"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 hover:text-surface-600 text-xs font-medium"
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
           <div className="sm:col-span-2">
             <label className="label">Notes (optional)</label>
