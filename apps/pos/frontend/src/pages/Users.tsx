@@ -3,6 +3,7 @@ import { PageContainer } from '../components/layout/Layout';
 import { Modal } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
+import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import { AxiosError } from 'axios';
 import { useT } from '../i18n/translations';
@@ -25,6 +26,7 @@ const EMPTY = { name: '', email: '', password: '', role_id: '', pin: '', is_acti
 export default function Users() {
   const t = useT();
   const toast = useToastStore();
+  const { setToken, sandbox } = useAuthStore();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +76,14 @@ export default function Users() {
         ...(form.password ? { password: form.password } : {}),
       };
       if (isEditing) {
-        await api.put(`/users/${editId}`, payload);
+        const r = await api.put(`/users/${editId}`, payload);
+        // Editing your OWN account's password revokes the token this
+        // request was made with — the backend re-signs a fresh one for
+        // that case only (editing someone else's password correctly
+        // leaves your own session untouched). Swap it in so the page
+        // reload right after (load()) doesn't bounce you to the login
+        // screen with a "session expired" toast.
+        if (r.data.data.token) setToken(r.data.data.token, sandbox);
         toast.success('User updated');
       } else {
         if (!form.password) { toast.error('Password is required'); return; }

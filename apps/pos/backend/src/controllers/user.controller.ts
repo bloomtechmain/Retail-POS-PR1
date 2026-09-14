@@ -18,7 +18,7 @@ export const create = async (req: AuthRequest, res: Response, next: NextFunction
 
 export const update = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const user = await userService.updateUser(parseInt(req.params.id), req.body);
+    const user = await userService.updateUser(parseInt(req.params.id), req.body, req.user);
     res.json({ success: true, data: user });
   } catch (err) { next(err); }
 };

@@ -1,10 +1,11 @@
 import bcrypt from 'bcryptjs';
 import { query } from '../config/database';
 import { createError } from '../middleware/error';
-import { User } from '../types';
+import { AuthPayload, User } from '../types';
 import { PLANS, DEFAULT_PLAN_KEY } from '../data/plans';
 import { getCurrentTenantId } from '../config/tenantContext';
 import { markPasswordChanged } from '../utils/tokenRevocation';
+import { signToken } from '../utils/jwt';
 
 // `users` is the one table shared across every tenant (see tenantContext.ts)
 // rather than living inside each tenant's own schema, so every query here
@@ -77,8 +78,11 @@ export const createUser = async (data: {
 
 export const updateUser = async (
   id: number,
-  data: { name?: string; email?: string; role_id?: number; is_active?: boolean; pin?: string; password?: string }
-): Promise<User> => {
+  data: { name?: string; email?: string; role_id?: number; is_active?: boolean; pin?: string; password?: string },
+  // The caller's own token, when known — only needed to detect the
+  // self-edit-own-password case below and re-sign a working token for it.
+  requester?: AuthPayload
+): Promise<User & { token?: string }> => {
   const tenantId = getCurrentTenantId();
 
   if (data.email) {
@@ -121,8 +125,36 @@ export const updateUser = async (
     values
   );
   if (result.rows.length === 0) throw createError('User not found', 404);
-  if (data.password) markPasswordChanged(id);
-  return result.rows[0];
+  if (!data.password) return result.rows[0];
+
+  markPasswordChanged(id);
+
+  // Changing your OWN password through this (admin) endpoint revokes the
+  // very token you're making this request with — e.g. the first-run Setup
+  // wizard and a self-edit from the Users page both do this. Without a
+  // fresh token here, the caller's next request 401s as "session expired"
+  // even though the password change itself just succeeded. Only relevant
+  // when editing someone else's password (an admin resetting a staff
+  // member's login) — that staff member's own token is revoked as
+  // intended, and the admin's token is untouched since it's a different id.
+  if (!requester || requester.id !== id) return result.rows[0];
+
+  const roleResult = await query(
+    'SELECT u.role_id, r.name as role_name, r.permissions FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = $1',
+    [id]
+  );
+  const fresh = roleResult.rows[0];
+  const token = signToken({
+    id,
+    email: result.rows[0].email,
+    role_id: fresh.role_id,
+    role_name: fresh.role_name,
+    permissions: fresh.permissions,
+    tenant_id: requester.tenant_id,
+    schema_name: requester.schema_name,
+    sandbox: requester.sandbox,
+  });
+  return { ...result.rows[0], token };
 };
 
 export const deleteUser = async (id: number): Promise<void> => {

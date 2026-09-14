@@ -10,7 +10,7 @@ export default function Setup() {
   const navigate = useNavigate();
   const toast = useToastStore();
   const { setSettings } = useSettingsStore();
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, setToken, sandbox } = useAuthStore();
   const [saving, setSaving] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState(user?.email || '');
@@ -56,6 +56,12 @@ export default function Setup() {
         if (newPassword) payload.password = newPassword;
         const r = await api.put(`/users/${user.id}`, payload);
         setUser({ ...user, email: r.data.data.email });
+        // Setting your own password revokes the token this very request was
+        // made with — the backend re-signs a fresh one for exactly this
+        // self-edit case; without swapping it in, the next call below
+        // (complete-setup) 401s as "session expired" on a technically
+        // successful password change.
+        if (r.data.data.token) setToken(r.data.data.token, sandbox);
       }
 
       const r = await api.post('/settings/complete-setup', {});
