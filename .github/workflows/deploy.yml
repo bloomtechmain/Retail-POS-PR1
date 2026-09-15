@@ -68,7 +68,7 @@ jobs:
             --instance-ids "${{ secrets.AWS_EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --comment "deploy ${{ github.sha }}" \
-            --parameters 'commands=["cd /home/ec2-user/retail-pos && git pull --ff-only && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d && sleep 5 && curl -fsS http://localhost:5000/health && curl -fsS http://localhost:5001/health && docker image prune -f"]' \
+            --parameters 'commands=["sudo -u ec2-user -i bash -c '\''cd retail-pos && git pull --ff-only && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d && sleep 5 && curl -fsS http://localhost:5000/health && curl -fsS http://localhost:5001/health && curl -fsS http://localhost:3001/ -o /dev/null && docker image prune -f'\''"]' \
             --query "Command.CommandId" --output text)
 
           echo "SSM command: $COMMAND_ID"
