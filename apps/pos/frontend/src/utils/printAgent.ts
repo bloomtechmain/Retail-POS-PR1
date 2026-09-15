@@ -13,7 +13,9 @@ export interface ReceiptCopyDestination {
 }
 
 export type PaperWidth = '58mm' | '80mm';
-export type ReceiptTemplateName = 'standard' | 'compact' | 'detailed';
+export type ReceiptTemplateName = 'standard' | 'compact' | 'detailed' | 'minimal' | 'formal';
+export type ReceiptLanguage = 'en' | 'si';
+const RECEIPT_TEMPLATE_NAMES: ReceiptTemplateName[] = ['standard', 'compact', 'detailed', 'minimal', 'formal'];
 
 interface PrinterConfig {
   defaultPrinter: string | null;
@@ -32,6 +34,11 @@ interface PrinterConfig {
   // Which ESC/POS layout (receiptTemplates.ts) to print with. Installs
   // that predate this backfill to 'standard'.
   receiptTemplate: ReceiptTemplateName;
+  // Which language the printed labels (Subtotal/Total/etc.) use. Item and
+  // business text prints in whatever script it's actually written in
+  // either way — this only picks the label set. Installs that predate
+  // this backfill to 'en'.
+  receiptLanguage: ReceiptLanguage;
 }
 
 interface ElectronPrintAPI {
@@ -111,7 +118,8 @@ export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
     printers: data.printers || {},
     receiptCopies: data.receiptCopies || [],
     paperWidth: data.paperWidth === '58mm' ? '58mm' : '80mm',
-    receiptTemplate: data.receiptTemplate === 'compact' || data.receiptTemplate === 'detailed' ? data.receiptTemplate : 'standard',
+    receiptTemplate: RECEIPT_TEMPLATE_NAMES.includes(data.receiptTemplate) ? data.receiptTemplate : 'standard',
+    receiptLanguage: data.receiptLanguage === 'si' ? 'si' : 'en',
   };
 }
 
@@ -155,16 +163,22 @@ export async function setReceiptTemplate(receiptTemplate: ReceiptTemplateName): 
   await saveAgentPrinterConfig({ ...current, receiptTemplate });
 }
 
+export async function setReceiptLanguage(receiptLanguage: ReceiptLanguage): Promise<void> {
+  const current = await getAgentPrinterConfig();
+  await saveAgentPrinterConfig({ ...current, receiptLanguage });
+}
+
 // Thermal printers print a fixed number of characters per line depending on
 // roll width — 32 for 58mm, 48 for 80mm at the printer's default font.
 // Every ESC/POS template call site needs both this and which template is
 // selected, so callers fetch config once up front via this helper rather
 // than each reaching into getAgentPrinterConfig() separately.
-export async function getReceiptPrintOptions(): Promise<{ charsPerLine: number; template: ReceiptTemplateName }> {
+export async function getReceiptPrintOptions(): Promise<{ charsPerLine: number; template: ReceiptTemplateName; language: ReceiptLanguage }> {
   const config = await getAgentPrinterConfig();
   return {
     charsPerLine: config.paperWidth === '58mm' ? 32 : 48,
     template: config.receiptTemplate,
+    language: config.receiptLanguage,
   };
 }
 

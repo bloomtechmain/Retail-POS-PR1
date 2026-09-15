@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "retail-pos": "file:../.."
   },
   "devDependencies": {
     "electron": "^31.0.2",

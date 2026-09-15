@@ -298,8 +298,8 @@ function ReceiptModal({ sale, onClose }: { sale: Sale | null; onClose: () => voi
     if (!sale) return;
     setIsPrinting(true);
     try {
-      const { charsPerLine, template } = await getReceiptPrintOptions();
-      const bytes = buildReceiptEscPos(sale, sale.items || [], settings, template, charsPerLine);
+      const { charsPerLine, template, language } = await getReceiptPrintOptions();
+      const bytes = await buildReceiptEscPos(sale, sale.items || [], settings, template, charsPerLine, language);
       const result = await sendPrintJob(bytes);
       if (result.success) {
         setShowSetupBanner(false);

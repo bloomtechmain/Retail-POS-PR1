@@ -14,6 +14,10 @@ const BACKEND_PORT = 5000;
 const PG_PORT = 5435;
 const APP_VERSION = app.getVersion();
 
+// Kept in sync by hand with ReceiptTemplateName in
+// apps/pos/frontend/src/utils/printAgent.ts.
+const RECEIPT_TEMPLATES = ['standard', 'compact', 'detailed', 'minimal', 'formal'];
+
 // Same default shown on the activation screen — used for the background
 // revocation check below, which never prompts the user for a server URL.
 const DEFAULT_LICENSE_SERVER_URL = 'https://dashboard.bloomswiftpos.com/license-api';
@@ -295,10 +299,11 @@ function readPrinterConfig() {
       printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
       receiptCopies: Array.isArray(parsed.receiptCopies) ? parsed.receiptCopies : [],
       paperWidth: parsed.paperWidth === '58mm' ? '58mm' : '80mm',
-      receiptTemplate: parsed.receiptTemplate === 'compact' || parsed.receiptTemplate === 'detailed' ? parsed.receiptTemplate : 'standard',
+      receiptTemplate: RECEIPT_TEMPLATES.includes(parsed.receiptTemplate) ? parsed.receiptTemplate : 'standard',
+      receiptLanguage: parsed.receiptLanguage === 'si' ? 'si' : 'en',
     };
   } catch {
-    return { defaultPrinter: null, printers: {}, receiptCopies: [], paperWidth: '80mm', receiptTemplate: 'standard' };
+    return { defaultPrinter: null, printers: {}, receiptCopies: [], paperWidth: '80mm', receiptTemplate: 'standard', receiptLanguage: 'en' };
   }
 }
 
@@ -399,7 +404,8 @@ ipcMain.handle('printer:save-config', (_event, config) => {
       ? config.receiptCopies.filter((c) => c && c.printerName).map((c) => ({ label: String(c.label || ''), printerName: String(c.printerName) }))
       : [],
     paperWidth: config && config.paperWidth === '58mm' ? '58mm' : '80mm',
-    receiptTemplate: config && (config.receiptTemplate === 'compact' || config.receiptTemplate === 'detailed') ? config.receiptTemplate : 'standard',
+    receiptTemplate: config && RECEIPT_TEMPLATES.includes(config.receiptTemplate) ? config.receiptTemplate : 'standard',
+    receiptLanguage: config && config.receiptLanguage === 'si' ? 'si' : 'en',
   };
   writePrinterConfig(next);
   return next;

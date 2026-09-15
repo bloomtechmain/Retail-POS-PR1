@@ -17,12 +17,22 @@ const PORT = 41205;
 // Only the real POS origins may reach this local server — the server binds
 // to 127.0.0.1 (not reachable off this machine) AND rejects unknown
 // origins, so a random website can't silently print to someone's printer.
-const ALLOWED_ORIGINS = [
-  'https://app.bloomswiftpos.com',
-  'http://localhost:5173',
-];
+// Any localhost/127.0.0.1 port is allowed (not just :5173) because Vite
+// silently bumps to :5174/:5175/etc. when the default port is already
+// taken — a fixed single dev origin here caused the agent to look "online"
+// (health check has no Origin check issue) while every /print call got
+// rejected by CORS and silently fell back to the browser print popup.
+const PROD_ORIGIN = 'https://app.bloomswiftpos.com';
+const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+function isAllowedOrigin(origin) {
+  return origin === PROD_ORIGIN || LOCAL_ORIGIN_RE.test(origin);
+}
 
 const APP_VERSION = app.getVersion();
+
+// Kept in sync by hand with ReceiptTemplateName in
+// apps/pos/frontend/src/utils/printAgent.ts.
+const RECEIPT_TEMPLATES = ['standard', 'compact', 'detailed', 'minimal', 'formal'];
 
 // ─── Single Instance Lock ────────────────────────────────────────────────────
 // Prevents a second tray icon / EADDRINUSE if the installer's "run after
@@ -59,10 +69,11 @@ function readConfig() {
       printers: parsed.printers && typeof parsed.printers === 'object' ? parsed.printers : {},
       receiptCopies: Array.isArray(parsed.receiptCopies) ? parsed.receiptCopies : [],
       paperWidth: parsed.paperWidth === '58mm' ? '58mm' : '80mm',
-      receiptTemplate: parsed.receiptTemplate === 'compact' || parsed.receiptTemplate === 'detailed' ? parsed.receiptTemplate : 'standard',
+      receiptTemplate: RECEIPT_TEMPLATES.includes(parsed.receiptTemplate) ? parsed.receiptTemplate : 'standard',
+      receiptLanguage: parsed.receiptLanguage === 'si' ? 'si' : 'en',
     };
   } catch {
-    return { defaultPrinter: null, printers: {}, receiptCopies: [], paperWidth: '80mm', receiptTemplate: 'standard' };
+    return { defaultPrinter: null, printers: {}, receiptCopies: [], paperWidth: '80mm', receiptTemplate: 'standard', receiptLanguage: 'en' };
   }
 }
 
@@ -164,7 +175,7 @@ function startServer() {
         // No Origin header (e.g. curl, or a same-machine health check) is
         // allowed through; browser requests always send Origin and are
         // checked against the allowlist.
-        if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
+        if (!origin || isAllowedOrigin(origin)) callback(null, true);
         else callback(new Error('Origin not allowed'));
       },
     })
@@ -193,8 +204,9 @@ function startServer() {
       ? req.body.receiptCopies.filter((c) => c && c.printerName).map((c) => ({ label: String(c.label || ''), printerName: String(c.printerName) }))
       : [];
     const paperWidth = req.body && req.body.paperWidth === '58mm' ? '58mm' : '80mm';
-    const receiptTemplate = req.body && (req.body.receiptTemplate === 'compact' || req.body.receiptTemplate === 'detailed') ? req.body.receiptTemplate : 'standard';
-    const config = { defaultPrinter, printers, receiptCopies, paperWidth, receiptTemplate };
+    const receiptTemplate = req.body && RECEIPT_TEMPLATES.includes(req.body.receiptTemplate) ? req.body.receiptTemplate : 'standard';
+    const receiptLanguage = req.body && req.body.receiptLanguage === 'si' ? 'si' : 'en';
+    const config = { defaultPrinter, printers, receiptCopies, paperWidth, receiptTemplate, receiptLanguage };
     writeConfig(config);
     broadcastConfig(config);
     res.json(config);

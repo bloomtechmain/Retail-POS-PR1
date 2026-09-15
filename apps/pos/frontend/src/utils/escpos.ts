@@ -9,15 +9,25 @@
 // print as mangled bytes, the exact class of bug this module exists to
 // avoid. Callers should pass currency_code ("LKR") rather than
 // currency_symbol ("₨") into any amount formatting.
+import { renderTextRaster, gsRasterCommand, isAsciiPrintable } from './escposRaster';
+
 const ESC = 0x1b;
 const GS = 0x1d;
 
 export class EscPosBuilder {
   private bytes: number[] = [];
   readonly width: number;
+  // Printable roll width in dots, for the raster (Sinhala/non-ASCII) text
+  // path below — 203dpi thermal printers print 8 dots/mm; a 58mm roll
+  // prints ~48mm wide (384 dots), an 80mm roll ~72mm wide (576 dots), the
+  // two paper widths this app supports (see PrinterConfig.paperWidth).
+  readonly widthDots: number;
+  private boldOn = false;
+  private alignMode: 'left' | 'center' | 'right' = 'left';
 
   constructor(charsPerLine: number) {
     this.width = charsPerLine;
+    this.widthDots = charsPerLine <= 32 ? 384 : 576;
     this.raw([ESC, 0x40]); // ESC @ — initialize
   }
 
@@ -48,11 +58,13 @@ export class EscPosBuilder {
   }
 
   align(a: 'left' | 'center' | 'right'): this {
+    this.alignMode = a;
     const n = a === 'left' ? 0 : a === 'center' ? 1 : 2;
     return this.raw([ESC, 0x61, n]);
   }
 
   bold(on: boolean): this {
+    this.boldOn = on;
     return this.raw([ESC, 0x45, on ? 1 : 0]);
   }
 
@@ -96,6 +108,37 @@ export class EscPosBuilder {
     }
     if (current) this.line(current);
     return this;
+  }
+
+  // Prints `s` via the printer's built-in font (fast path, unchanged
+  // behavior) if it's plain ASCII, or as a rendered bitmap if it contains
+  // characters that font can't represent — e.g. Sinhala. See
+  // escposRaster.ts for why. Only the raster path is actually async.
+  async lineAuto(s = ''): Promise<this> {
+    if (isAsciiPrintable(s)) return this.line(s);
+    const raster = await renderTextRaster(s, { widthDots: this.widthDots, bold: this.boldOn, align: this.alignMode });
+    return this.raw(gsRasterCommand(raster));
+  }
+
+  // Same idea as twoCol, but for a left label that may be non-ASCII (e.g.
+  // a Sinhala product name) — pads exactly as twoCol does, then renders
+  // the whole padded line as one bitmap so both columns still land on one
+  // printed row. `right` is assumed ASCII (amounts always are — see
+  // amount() in receiptTemplates.ts).
+  async twoColAuto(left: string, right: string): Promise<this> {
+    if (isAsciiPrintable(left)) return this.twoCol(left, right);
+    const space = Math.max(1, this.width - right.length);
+    const trimmedLeft = left.length > space - 1 ? left.slice(0, Math.max(0, space - 1)) : left;
+    const padded = trimmedLeft + ' '.repeat(Math.max(1, space - trimmedLeft.length)) + right;
+    return this.lineAuto(padded);
+  }
+
+  // Sinhala equivalent of wrapAndPrint — glyphs aren't fixed-width like the
+  // printer's ASCII font, so there's no reliable char-count to wrap by.
+  // Long text instead shrinks to fit one line (see renderTextRaster).
+  async wrapAndPrintAuto(text: string): Promise<this> {
+    if (isAsciiPrintable(text)) return this.wrapAndPrint(text);
+    return this.lineAuto(text);
   }
 
   feed(n = 1): this {

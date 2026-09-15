@@ -8,10 +8,12 @@ import {
   isElectronPrint,
   PaperWidth,
   ReceiptCopyDestination,
+  ReceiptLanguage,
   ReceiptTemplateName,
   setAgentDefaultPrinter,
   setPaperWidth,
   setReceiptCopies,
+  setReceiptLanguage,
   setReceiptTemplate,
 } from '../../utils/printAgent';
 
@@ -29,6 +31,7 @@ export function PrintAgentCard() {
   const [savingCopies, setSavingCopies] = useState(false);
   const [paperWidth, setPaperWidthState] = useState<PaperWidth>('80mm');
   const [template, setTemplateState] = useState<ReceiptTemplateName>('standard');
+  const [language, setLanguageState] = useState<ReceiptLanguage>('en');
   const [savingFormat, setSavingFormat] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -45,6 +48,7 @@ export function PrintAgentCard() {
       setCopies(config.receiptCopies);
       setPaperWidthState(config.paperWidth);
       setTemplateState(config.receiptTemplate);
+      setLanguageState(config.receiptLanguage);
     } catch {
       // Agent answered /health but not /printers — leave the list as-is,
       // status still reads "online".
@@ -89,6 +93,18 @@ export function PrintAgentCard() {
     try {
       await setReceiptTemplate(value);
       setTemplateState(value);
+    } catch {
+      toast.error('Could not save — is the Print Agent still running?');
+    } finally {
+      setSavingFormat(false);
+    }
+  };
+
+  const changeLanguage = async (value: ReceiptLanguage) => {
+    setSavingFormat(true);
+    try {
+      await setReceiptLanguage(value);
+      setLanguageState(value);
     } catch {
       toast.error('Could not save — is the Print Agent still running?');
     } finally {
@@ -206,7 +222,24 @@ export function PrintAgentCard() {
                 <option value="standard">Standard</option>
                 <option value="compact">Compact</option>
                 <option value="detailed">Detailed</option>
+                <option value="minimal">Minimal</option>
+                <option value="formal">Formal (Tax Invoice)</option>
               </select>
+            </div>
+            <div>
+              <label className="label text-xs">Bill language</label>
+              <select
+                className="input py-2 text-sm"
+                value={language}
+                disabled={savingFormat}
+                onChange={(e) => changeLanguage(e.target.value as ReceiptLanguage)}
+              >
+                <option value="en">English</option>
+                <option value="si">සිංහල (Sinhala)</option>
+              </select>
+              <p className="text-surface-400 text-xs mt-1">
+                Product/customer names print in whatever script they're entered in either way.
+              </p>
             </div>
           </div>
         </div>

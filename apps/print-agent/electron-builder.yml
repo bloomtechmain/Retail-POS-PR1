@@ -2,6 +2,12 @@ appId: com.bloompos.printagent
 productName: BloomPOS Print Agent
 copyright: Copyright © 2025 BloomPOS
 
+# Fixed, version-less filename — PrintAgentCard.tsx links to
+# /downloads/BloomPOS-PrintAgent-Setup.exe verbatim (no version number),
+# so every rebuild must keep producing exactly this name or the download
+# link on the site 404s.
+artifactName: BloomPOS-PrintAgent-Setup.${ext}
+
 # Windows' native Tray icon loader can't read files from inside app.asar
 # (it fails with "Failed to load image from path ...app.asar\..."), which
 # silently killed the whole main-process startup chain — the HTTP server
