@@ -178,9 +178,9 @@ What's actually live right now, on a single EC2 instance (`3.147.252.26`) + one 
 
 | Piece | Status | URL |
 |---|---|---|
-| `pos-backend` | Live (PM2 — pending Docker cutover, §12) | proxied via nginx at `:47821/api/*` |
-| `admin-backend` | Live (PM2 — pending Docker cutover, §12) | proxied via nginx at `:47822/api/*` |
-| `license-server` | Live (PM2 — pending Docker cutover, §12) | **not** exposed publicly — only reachable from `admin-backend` via `localhost:3001` |
+| `pos-backend` | Live (Docker container, see §12) | proxied via nginx at `:47821/api/*` |
+| `admin-backend` | Live (Docker container, see §12) | proxied via nginx at `:47822/api/*` |
+| `license-server` | Live (Docker container, see §12) | publicly reachable at `https://dashboard.bloomswiftpos.com/license-api/`; also `localhost:3001` from `admin-backend` |
 | `apps/pos/frontend` | Live | `https://app.bloomswiftpos.com` (nginx origin: `:47821`) |
 | `apps/admin-dashboard/frontend` | Live | `https://dashboard.bloomswiftpos.com` (nginx origin: `:47822`) |
 | `apps/website` | Not deployed | out of scope per current decision — no public self-serve signup |
@@ -207,26 +207,24 @@ The three backends (`pos/backend`, `admin-dashboard/backend`, `license-server`) 
 
 **This is auto-deploy-to-production, deliberately** (per the decision made when this was set up) — every push to `main` touching backend code goes straight to the live box with no manual approval gate. The on-box health-check curl is the only safety net; there's no automatic rollback on failure.
 
-### One-time manual setup still required
+### Status: live as of 2026-09-16
 
-I don't have AWS credentials or SSM access from a coding session, so none of this has actually been run yet — the files above are ready, but the pipeline won't work until someone with AWS access does the following:
+The pm2→Docker cutover is done. All three backends now run as Docker containers on the same ports pm2 used to hold; pm2 no longer manages anything on the box (`pm2 list` is empty, `pm2 save`d in that state). What it took to get there, for anyone touching this again:
 
-1. `cd terraform && terraform apply` — creates the OIDC provider + IAM role, and prints `github_actions_role_arn` / `instance_id` in the output.
-2. In the GitHub repo (Settings → Secrets and variables → Actions), add:
-   - `AWS_ROLE_ARN` = the `github_actions_role_arn` output
-   - `AWS_EC2_INSTANCE_ID` = the `instance_id` output
-3. SSM into the **existing** live box (it was provisioned before this change, so its `user_data` never ran the new Docker install lines) and install Docker by hand — same commands now in `ec2.tf`'s `user_data`:
-   ```
-   sudo dnf install -y docker
-   sudo systemctl enable --now docker
-   sudo mkdir -p /usr/libexec/docker/cli-plugins
-   sudo curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
-   sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
-   ```
-4. The repo is cloned at `/home/ec2-user/retail-pos` on the box (verified via SSM) — that's the path `deploy.yml` targets. Add a `.env` file next to `docker-compose.prod.yml` there containing `GHCR_OWNER=bloomtechmain`.
-5. After the first CI run publishes the 3 images, make them public on GitHub (repo → Packages → each image → Change visibility). Safe to do — secrets are injected at runtime via `.env` files, never baked into the image. (Keeping them private instead is fine too, it just means adding a `docker login ghcr.io` step with a PAT to the box.)
-6. **Stop the existing pm2 processes before the first container deploy**, or they'll fight the containers over ports 5000/5001/3001: `pm2 list` to get exact names, then `pm2 stop <name>` for each of the 3 backends. Once the containers are confirmed healthy, `pm2 delete` them and `pm2 save`.
-7. Trigger the first deploy (push a no-op change to a backend, or run the `docker compose -f docker-compose.prod.yml pull && up -d` command by hand over SSM once) and watch the Actions run before trusting it unattended.
+1. **No local Terraform state existed anywhere** for the already-live infra — it had only ever been applied from a different, since-gone machine. Recovered by importing all 17 live resources (VPC, subnets, EC2, RDS, security groups, IAM, etc.) into a fresh local state before ever running `apply`. Two things the plan would otherwise have silently broken, caught by reviewing the plan before applying:
+   - `data.aws_ami.amazon_linux` (`most_recent = true`) had drifted to a newer AMI than the box was actually running — would have forced a full destroy+recreate of the live production instance. Fixed with `lifecycle { ignore_changes = [ami, user_data] }` on `aws_instance.main`.
+   - The live security group actually restricts ports 47821/47822 to Cloudflare's IP ranges (hardened manually at some point, never reflected back into Terraform) — the `.tf` said `0.0.0.0/0`. Fixed in `ec2.tf` to match reality, or `apply` would have reverted that hardening.
+   - `terraform.tfstate`/`terraform.tfvars` are local-only (gitignored) on whatever machine last ran this — **there is still no remote backend** (S3 + DynamoDB lock table). Worth setting up so this recovery isn't needed again next time.
+2. `terraform apply` created the OIDC provider + IAM role. Zero downtime (verified RDS `available`, EC2 `running`, both domains 200 immediately after).
+3. `AWS_ROLE_ARN` and `AWS_EC2_INSTANCE_ID` GitHub secrets set.
+4. Docker was already installed on the box (unclear from what); only the Compose v2 plugin was actually missing — installed via SSM.
+5. **The assumed deploy path was wrong** — `deploy.yml` originally targeted `/opt/retail-pos`; the real clone lives at `/home/ec2-user/retail-pos` (found via SSM recon, not assumption). Fixed before it could bite.
+6. GHCR packages turned out to be publicly pullable by default with no extra step — the "make packages public" decision point never actually came up.
+7. First deploy attempt failed instructively, twice, before working:
+   - `build-and-push` failed with `Cache export is not supported for the docker driver` — `cache-to: type=gha` needs the `docker-container` buildx driver, not the default `docker` one. Fixed by adding `docker/setup-buildx-action@v3` before the build step.
+   - The SSM deploy command failed with `detected dubious ownership in repository` — it ran as `root`, but the checkout is owned by `ec2-user`. Fixed by wrapping the whole deploy command in `sudo -u ec2-user -i bash -c '...'`.
+   - The actual cutover (stop pm2 → `docker compose up -d`) surfaced a real bug: `apps/license-server/Dockerfile` only copied `dist/`, never `public/` — but `app.ts` serves the admin UI (`index.html`) as a static fallback from `../public`. The container came up but `/license-api/` 404'd. Fixed by adding `COPY --from=builder /app/public ./public`; verified `/license-api/` back to 200 after the next deploy.
+8. Confirmed end-to-end: `app.bloomswiftpos.com`, `dashboard.bloomswiftpos.com`, and `dashboard.bloomswiftpos.com/license-api/` all return 200, serving the new containers.
 
 ## 13. Checklist before trusting this with real paying customers
 
@@ -242,5 +240,6 @@ The above is a genuine working deployment, but a few things were deliberately de
 - [ ] **Decide on `license-server`'s public exposure** — see the activation-URL item above; this is the same underlying decision.
 - [ ] **Cost monitoring.** Nothing here is free-tier-guaranteed forever (RDS `db.t3.micro`/EC2 `t3.small` have free-tier windows that expire). Set a AWS Budget alert so a runaway process or forgotten resource doesn't surprise you on the bill.
 - [ ] **`npm audit`** flagged several vulnerabilities across services during install (moderate/high, none investigated in depth here). Worth a proper look before this is customer-facing, even if none turn out to be exploitable in this app's actual usage.
-- [ ] **Docker/CI-CD cutover not yet performed** (§12) — Dockerfiles, `docker-compose.prod.yml`, and `.github/workflows/deploy.yml` are written, but `terraform apply` hasn't run for the new OIDC/IAM resources, no GitHub secrets are set, and the live box still runs the 3 backends under PM2, not Docker. The pipeline will silently do nothing (or fail) until the §12 manual steps are done.
-- [ ] **GHCR package visibility decision** — public (simplest, no secrets baked into images) vs. private (needs a pull credential on the box). Not yet decided/set.
+- [x] **Docker/CI-CD cutover** (§12) — done 2026-09-16. All 3 backends run as Docker containers; pm2 fully decommissioned (`pm2 list` empty, saved). Push-to-deploy verified working end-to-end.
+- [x] **GHCR package visibility** — resolved itself: images pulled publicly with no extra step needed, nothing to decide.
+- [ ] **No remote Terraform state backend.** `terraform.tfstate`/`terraform.tfvars` are local-only on whatever machine last ran `apply` — this is exactly what caused the 2026-09-16 recovery work in §12 (state had to be reconstructed via `terraform import` because it simply didn't exist anywhere). Set up an S3 bucket + DynamoDB lock table backend so this can't happen again and so more than one person/machine can safely run Terraform.
