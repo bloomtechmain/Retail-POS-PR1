@@ -1,0 +1,38 @@
+# Runs on the production EC2 box. Pulls prebuilt images from GHCR instead of
+# building locally — CI (.github/workflows/deploy.yml) pushes new images,
+# then tells the box to run this. RDS is external/managed, so there's no
+# postgres service here (unlike docker-compose.yml, used for local dev).
+#
+# Expects a ".env" file next to this one on the box with:
+#   GHCR_OWNER=bloomtechmain
+# and the existing apps/*/backend/.env files already in place from the
+# original manual deploy (see AWS_DEPLOYMENT.md).
+
+services:
+  pos-backend:
+    image: ghcr.io/${GHCR_OWNER}/pos-backend:latest
+    restart: unless-stopped
+    env_file: ./apps/pos/backend/.env
+    ports:
+      - "5000:5000"
+
+  admin-backend:
+    image: ghcr.io/${GHCR_OWNER}/admin-backend:latest
+    restart: unless-stopped
+    env_file: ./apps/admin-dashboard/backend/.env
+    ports:
+      - "5001:5001"
+    depends_on:
+      - pos-backend
+
+  license-server:
+    image: ghcr.io/${GHCR_OWNER}/license-server:latest
+    restart: unless-stopped
+    env_file: ./apps/license-server/.env
+    volumes:
+      - license_data:/data
+    ports:
+      - "3001:3001"
+
+volumes:
+  license_data:

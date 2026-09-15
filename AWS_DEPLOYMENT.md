@@ -160,15 +160,15 @@ Don't write all the `.tf` files at once. Build and verify in this order:
 
 ## 9. What NOT to do
 
-- Don't containerize/move to Fargate right now just because it's "more standard" — it adds Docker, ECR, and ECS complexity for zero benefit at your current scale. Revisit later if you need per-service auto-scaling.
+- ~~Don't containerize~~ — superseded by §12: the 3 backends are now containerized specifically to get reproducible CI/CD, not for auto-scaling. Still true as originally written: don't move to ECS/Fargate/k8s just because it's "more standard" — ordinary Docker + `docker compose` on the existing single box gets the CI/CD and reproducibility benefit without that added orchestration complexity. Revisit ECS/Fargate later if you actually need per-service auto-scaling.
 - Don't try to write all the Terraform in one sitting before testing anything — build and verify one resource type at a time (§7).
 - Don't skip the "get it working manually over SSH first" step — if you can't get the app running by hand on the box, a startup script automating the same steps won't magically work either, and you'll be debugging Terraform and app-deploy problems at the same time.
 
 ---
 
-## 10. Reference — how this maps to your existing Railway setup
+## 10. Reference — how this maps to the old Railway setup
 
-The repo already has Railway-specific config (`railway.json`, `nixpacks.toml`, and `.env.example` comments mentioning Railway). AWS replaces that platform-managed deploy target with infrastructure you provision yourself — the **application code and env-var contract are unchanged**; only *how the process gets started and how the database is provisioned* changes. Nothing in `apps/` needs to change to move from Railway to AWS.
+This app was originally deployed on Railway before the move to AWS. `railway.json`/`nixpacks.toml` (Railway's build/deploy config) and the Railway references in `.env.example` files have since been deleted/cleaned up — AWS + Docker/GHCR (§12) is now the only deploy target. The **application code and env-var contract are unchanged** from that migration; only *how the process gets started and how the database is provisioned* changed.
 
 ---
 
@@ -178,9 +178,9 @@ What's actually live right now, on a single EC2 instance (`3.147.252.26`) + one 
 
 | Piece | Status | URL |
 |---|---|---|
-| `pos-backend` | Live (PM2) | proxied via nginx at `:47821/api/*` |
-| `admin-backend` | Live (PM2) | proxied via nginx at `:47822/api/*` |
-| `license-server` | Live (PM2) | **not** exposed publicly — only reachable from `admin-backend` via `localhost:3001` |
+| `pos-backend` | Live (PM2 — pending Docker cutover, §12) | proxied via nginx at `:47821/api/*` |
+| `admin-backend` | Live (PM2 — pending Docker cutover, §12) | proxied via nginx at `:47822/api/*` |
+| `license-server` | Live (PM2 — pending Docker cutover, §12) | **not** exposed publicly — only reachable from `admin-backend` via `localhost:3001` |
 | `apps/pos/frontend` | Live | `https://app.bloomswiftpos.com` (nginx origin: `:47821`) |
 | `apps/admin-dashboard/frontend` | Live | `https://dashboard.bloomswiftpos.com` (nginx origin: `:47822`) |
 | `apps/website` | Not deployed | out of scope per current decision — no public self-serve signup |
@@ -194,7 +194,41 @@ Access to the EC2 instance is via **AWS Systems Manager (SSM) Session Manager** 
 
 ---
 
-## 12. Checklist before trusting this with real paying customers
+## 12. Docker + CI/CD (added after §11 went live)
+
+The three backends (`pos/backend`, `admin-dashboard/backend`, `license-server`) are now containerized, and pushes to `main` that touch backend code auto-deploy to production. What changed:
+
+- **`apps/pos/backend/Dockerfile`, `apps/admin-dashboard/backend/Dockerfile`, `apps/license-server/Dockerfile`** — multi-stage builds (`tsc` build stage → slim `node:22-alpine` runtime stage).
+- **`docker-compose.yml`** (repo root) — local dev: builds all 3 backends from source plus a local `postgres` container. `docker compose up` gets a new contributor a working backend stack with zero manual Postgres setup.
+- **`docker-compose.prod.yml`** (repo root) — production: pulls prebuilt images from GHCR (`ghcr.io/bloomtechmain/<service>:latest`) instead of building, and has **no** postgres service since RDS is external/managed.
+- **`.github/workflows/deploy.yml`** — on push to `main`: builds each backend's image, pushes to GitHub Container Registry, then calls `aws ssm send-command` to tell the production EC2 box to `docker compose -f docker-compose.prod.yml pull && up -d`, with a `curl localhost:5000/health` + `localhost:5001/health` check on the box itself gating success.
+- **`terraform/github-oidc.tf`** — a GitHub OIDC provider + IAM role (`retail-pos-github-actions-deploy`) so the workflow authenticates to AWS with short-lived credentials (no long-lived AWS keys stored in GitHub secrets), scoped to `ssm:SendCommand` against this one instance only.
+- **`terraform/ec2.tf`** — `user_data` now also installs Docker + the Compose v2 plugin. This only affects a **freshly created** instance — see the manual steps below for the box that's already live.
+
+**This is auto-deploy-to-production, deliberately** (per the decision made when this was set up) — every push to `main` touching backend code goes straight to the live box with no manual approval gate. The on-box health-check curl is the only safety net; there's no automatic rollback on failure.
+
+### One-time manual setup still required
+
+I don't have AWS credentials or SSM access from a coding session, so none of this has actually been run yet — the files above are ready, but the pipeline won't work until someone with AWS access does the following:
+
+1. `cd terraform && terraform apply` — creates the OIDC provider + IAM role, and prints `github_actions_role_arn` / `instance_id` in the output.
+2. In the GitHub repo (Settings → Secrets and variables → Actions), add:
+   - `AWS_ROLE_ARN` = the `github_actions_role_arn` output
+   - `AWS_EC2_INSTANCE_ID` = the `instance_id` output
+3. SSM into the **existing** live box (it was provisioned before this change, so its `user_data` never ran the new Docker install lines) and install Docker by hand — same commands now in `ec2.tf`'s `user_data`:
+   ```
+   sudo dnf install -y docker
+   sudo systemctl enable --now docker
+   sudo mkdir -p /usr/libexec/docker/cli-plugins
+   sudo curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/libexec/docker/cli-plugins/docker-compose
+   sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+   ```
+4. The repo is cloned at `/home/ec2-user/retail-pos` on the box (verified via SSM) — that's the path `deploy.yml` targets. Add a `.env` file next to `docker-compose.prod.yml` there containing `GHCR_OWNER=bloomtechmain`.
+5. After the first CI run publishes the 3 images, make them public on GitHub (repo → Packages → each image → Change visibility). Safe to do — secrets are injected at runtime via `.env` files, never baked into the image. (Keeping them private instead is fine too, it just means adding a `docker login ghcr.io` step with a PAT to the box.)
+6. **Stop the existing pm2 processes before the first container deploy**, or they'll fight the containers over ports 5000/5001/3001: `pm2 list` to get exact names, then `pm2 stop <name>` for each of the 3 backends. Once the containers are confirmed healthy, `pm2 delete` them and `pm2 save`.
+7. Trigger the first deploy (push a no-op change to a backend, or run the `docker compose -f docker-compose.prod.yml pull && up -d` command by hand over SSM once) and watch the Actions run before trusting it unattended.
+
+## 13. Checklist before trusting this with real paying customers
 
 The above is a genuine working deployment, but a few things were deliberately deferred to get something running quickly. None of these block internal testing — all of them matter before real customer data/payments flow through it.
 
@@ -208,3 +242,5 @@ The above is a genuine working deployment, but a few things were deliberately de
 - [ ] **Decide on `license-server`'s public exposure** — see the activation-URL item above; this is the same underlying decision.
 - [ ] **Cost monitoring.** Nothing here is free-tier-guaranteed forever (RDS `db.t3.micro`/EC2 `t3.small` have free-tier windows that expire). Set a AWS Budget alert so a runaway process or forgotten resource doesn't surprise you on the bill.
 - [ ] **`npm audit`** flagged several vulnerabilities across services during install (moderate/high, none investigated in depth here). Worth a proper look before this is customer-facing, even if none turn out to be exploitable in this app's actual usage.
+- [ ] **Docker/CI-CD cutover not yet performed** (§12) — Dockerfiles, `docker-compose.prod.yml`, and `.github/workflows/deploy.yml` are written, but `terraform apply` hasn't run for the new OIDC/IAM resources, no GitHub secrets are set, and the live box still runs the 3 backends under PM2, not Docker. The pipeline will silently do nothing (or fail) until the §12 manual steps are done.
+- [ ] **GHCR package visibility decision** — public (simplest, no secrets baked into images) vs. private (needs a pull credential on the box). Not yet decided/set.

@@ -61,6 +61,8 @@ pgdata/
 
 # ── AWS ops reference (contains real production credentials) ─────────────────
 AWS_OPERATIONS.md
+# AWS Operations Cheat Sheet — Bloo.txt
+*[Cc]heat [Ss]heet*.txt
 
 # ── Root-level report/reference PDFs (not project source) ─────────────────────
 /*.pdf

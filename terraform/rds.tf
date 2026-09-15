@@ -43,11 +43,11 @@ resource "aws_security_group" "rds" {
 resource "aws_db_instance" "main" {
   identifier     = "retail-pos-db"
   engine         = "postgres"
-  engine_version = "16"
+  engine_version = "16.13"
   instance_class = "db.t3.micro"
 
   allocated_storage = 20
-  storage_type       = "gp2"
+  storage_type      = "gp2"
 
   db_name  = "retail_pos"
   username = var.db_username
@@ -57,7 +57,7 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   publicly_accessible = true
-  skip_final_snapshot  = true
+  skip_final_snapshot = true
 
   tags = {
     Name = "retail-pos-db"

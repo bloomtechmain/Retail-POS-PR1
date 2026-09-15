@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: retail_pos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pos-backend:
+    build: ./apps/pos/backend
+    restart: unless-stopped
+    env_file: ./apps/pos/backend/.env
+    environment:
+      DB_HOST: postgres
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  admin-backend:
+    build: ./apps/admin-dashboard/backend
+    restart: unless-stopped
+    env_file: ./apps/admin-dashboard/backend/.env
+    environment:
+      DB_HOST: postgres
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pos-backend:
+        condition: service_started
+
+  license-server:
+    build: ./apps/license-server
+    restart: unless-stopped
+    env_file: ./apps/license-server/.env
+    volumes:
+      - license_data:/data
+    ports:
+      - "3001:3001"
+
+volumes:
+  postgres_data:
+  license_data:

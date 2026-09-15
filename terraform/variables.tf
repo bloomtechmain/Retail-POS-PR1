@@ -14,3 +14,9 @@ variable "my_ip" {
   description = "Your current public IP (CIDR form, e.g. 1.2.3.4/32) — temporarily allowed to reach RDS directly for setup"
   type        = string
 }
+
+variable "github_repo" {
+  description = "GitHub \"owner/repo\" allowed to assume the deploy role via OIDC"
+  type        = string
+  default     = "bloomtechmain/Retail-POS-PR1"
+}
