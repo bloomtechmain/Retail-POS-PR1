@@ -24,7 +24,7 @@ function getPgBinary(name: 'pg_dump' | 'pg_restore'): string {
 }
 
 // Every pg_dump/pg_restore call in this file goes through this — same single
-// code path whether production supplies DATABASE_URL (Railway/RDS-style) or
+// code path whether production supplies DATABASE_URL (RDS-style) or
 // local dev supplies discrete DB_HOST/PORT/USER/PASSWORD/NAME vars.
 function getConnectionUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;

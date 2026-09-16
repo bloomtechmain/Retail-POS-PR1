@@ -64,7 +64,7 @@ app.use('/downloads', express.static(path.join(__dirname, '..', '..', '..', '..'
 // ── Static frontend ─────────────────────────────────────────────────────────
 // Served by backend in two cases:
 //   1. Electron packaged app  (ELECTRON_APP=1, path set by main.js via FRONTEND_DIST)
-//   2. Railway / production   (NODE_ENV=production, path relative to this file)
+//   2. AWS / production      (NODE_ENV=production, path relative to this file)
 if (isElectron || isProduction) {
   const frontendDist = process.env.FRONTEND_DIST
     || path.join(__dirname, '..', '..', 'frontend', 'dist');
@@ -87,7 +87,7 @@ app.use(errorHandler);
 const BACKUP_SCHEDULE_CHECK_INTERVAL_MS = 60 * 1000;
 
 const start = async () => {
-  // Auto-migrate on Railway/production only.
+  // Auto-migrate on hosted/production only.
   // Electron handles its own migrations in main.js.
   if (!isElectron && isProduction) {
     await runMigrations();

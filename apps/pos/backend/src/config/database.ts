@@ -28,7 +28,7 @@ const resetSearchPath = async (client: PoolClient) => {
   await client.query(`SET search_path TO public`);
 };
 
-// Railway (and most cloud PG providers) expose a DATABASE_URL connection string.
+// AWS RDS (and most cloud PG providers) expose a DATABASE_URL connection string.
 // Fall back to individual vars for local / Electron use.
 const pool = process.env.DATABASE_URL
   ? new Pool({
