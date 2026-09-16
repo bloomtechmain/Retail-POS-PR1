@@ -63,6 +63,8 @@ pgdata/
 AWS_OPERATIONS.md
 # AWS Operations Cheat Sheet — Bloo.txt
 *[Cc]heat [Ss]heet*.txt
+DEPLOY_COMMANDS.md
+SENSITIVE_DATA.md
 
 # ── Root-level report/reference PDFs (not project source) ─────────────────────
 /*.pdf

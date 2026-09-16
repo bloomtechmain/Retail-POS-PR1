@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToastStore } from '../../store/toastStore';
+import { useSettingsStore } from '../../store/settingsStore';
+import { ReceiptPreview, TEMPLATE_INFO } from './BillTemplatePreview';
 import {
   checkPrintAgentStatus,
   getAgentDefaultPrinter,
@@ -21,6 +23,7 @@ type AgentState = 'checking' | 'offline' | 'online';
 
 export function PrintAgentCard() {
   const toast = useToastStore();
+  const settings = useSettingsStore((s) => s.settings);
   const [state, setState] = useState<AgentState>('checking');
   const [printers, setPrinters] = useState<string[]>([]);
   const [selected, setSelected] = useState('');
@@ -212,21 +215,6 @@ export function PrintAgentCard() {
               </select>
             </div>
             <div>
-              <label className="label text-xs">Bill template</label>
-              <select
-                className="input py-2 text-sm"
-                value={template}
-                disabled={savingFormat}
-                onChange={(e) => changeTemplate(e.target.value as ReceiptTemplateName)}
-              >
-                <option value="standard">Standard</option>
-                <option value="compact">Compact</option>
-                <option value="detailed">Detailed</option>
-                <option value="minimal">Minimal</option>
-                <option value="formal">Formal (Tax Invoice)</option>
-              </select>
-            </div>
-            <div>
               <label className="label text-xs">Bill language</label>
               <select
                 className="input py-2 text-sm"
@@ -240,6 +228,44 @@ export function PrintAgentCard() {
               <p className="text-surface-400 text-xs mt-1">
                 Product/customer names print in whatever script they're entered in either way.
               </p>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <label className="label text-xs">Bill template</label>
+            <p className="text-surface-400 text-xs mt-0.5 mb-3">
+              Pick how the printed bill is laid out — click a template to make it the one that prints.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {TEMPLATE_INFO.map((t) => {
+                const isSelected = template === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={savingFormat}
+                    onClick={() => changeTemplate(t.id)}
+                    className={`text-left rounded-lg border-2 transition-colors overflow-hidden focus:outline-none ${
+                      isSelected ? 'border-primary-500 ring-2 ring-primary-100' : 'border-surface-200 hover:border-surface-300'
+                    } ${savingFormat ? 'opacity-60 cursor-wait' : ''}`}
+                  >
+                    <div className="relative bg-surface-100 p-2">
+                      <div className="max-h-[520px] overflow-y-auto rounded-sm shadow-sm">
+                        <ReceiptPreview template={t.id} settings={settings} language={language} />
+                      </div>
+                      {isSelected && (
+                        <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5 rounded-full bg-primary-500 text-white text-xs">
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                    <div className="px-2.5 py-2">
+                      <div className="text-sm font-medium text-surface-800">{t.name}</div>
+                      <div className="text-xs text-surface-500 mt-0.5">{t.blurb}</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
