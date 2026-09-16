@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - "apps/pos/backend/**"
+      - "apps/pos/frontend/**"
       - "apps/admin-dashboard/backend/**"
+      - "apps/admin-dashboard/frontend/**"
       - "apps/license-server/**"
       - "docker-compose.prod.yml"
       - ".github/workflows/deploy.yml"
@@ -64,11 +66,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Backend containers come from the images build-and-push just pushed
+          # to GHCR (docker compose pull picks up :latest). The two frontends
+          # aren't containerized — nginx on the box serves their dist/ folders
+          # straight off disk (see nginx.conf's `root` directives) — so getting
+          # a new frontend live is a plain `npm run build` in place, no image
+          # to pull and no restart needed; nginx just serves the new files.
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.AWS_EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --comment "deploy ${{ github.sha }}" \
-            --parameters 'commands=["sudo -u ec2-user -i bash -c '\''cd retail-pos && git pull --ff-only && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d && sleep 5 && curl -fsS http://localhost:5000/health && curl -fsS http://localhost:5001/health && curl -fsS http://localhost:3001/ -o /dev/null && docker image prune -f'\''"]' \
+            --parameters 'commands=["sudo -u ec2-user -i bash -c '\''cd retail-pos && git pull --ff-only && cd apps/pos/frontend && npm ci && npm run build && cd ../../admin-dashboard/frontend && npm ci && npm run build && cd ../../.. && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d && sleep 5 && curl -fsS http://localhost:5000/health && curl -fsS http://localhost:5001/health && curl -fsS http://localhost:3001/ -o /dev/null && curl -fsS http://localhost:47821/ -o /dev/null && curl -fsS http://localhost:47822/ -o /dev/null && docker image prune -f'\''"]' \
             --query "Command.CommandId" --output text)
 
           echo "SSM command: $COMMAND_ID"
