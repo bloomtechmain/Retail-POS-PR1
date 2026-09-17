@@ -79,13 +79,20 @@ export function PrintAgentCard() {
     }
   };
 
+  // Falls back to the generic "is it running?" message, but setPaperWidth/
+  // setReceiptTemplate/setReceiptLanguage throw a specific, more useful
+  // message when the agent responded but is too old to actually support
+  // what was just changed — show that instead when present.
+  const printFormatErrorMessage = (err: unknown) =>
+    err instanceof Error && err.message ? err.message : 'Could not save — is the Print Agent still running?';
+
   const changePaperWidth = async (value: PaperWidth) => {
     setSavingFormat(true);
     try {
       await setPaperWidth(value);
       setPaperWidthState(value);
-    } catch {
-      toast.error('Could not save — is the Print Agent still running?');
+    } catch (err) {
+      toast.error(printFormatErrorMessage(err));
     } finally {
       setSavingFormat(false);
     }
@@ -96,8 +103,8 @@ export function PrintAgentCard() {
     try {
       await setReceiptTemplate(value);
       setTemplateState(value);
-    } catch {
-      toast.error('Could not save — is the Print Agent still running?');
+    } catch (err) {
+      toast.error(printFormatErrorMessage(err));
     } finally {
       setSavingFormat(false);
     }
@@ -108,8 +115,8 @@ export function PrintAgentCard() {
     try {
       await setReceiptLanguage(value);
       setLanguageState(value);
-    } catch {
-      toast.error('Could not save — is the Print Agent still running?');
+    } catch (err) {
+      toast.error(printFormatErrorMessage(err));
     } finally {
       setSavingFormat(false);
     }

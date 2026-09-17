@@ -123,6 +123,15 @@ export async function getAgentPrinterConfig(): Promise<PrinterConfig> {
   };
 }
 
+// An older, already-installed Print Agent build (from before paperWidth/
+// receiptTemplate/receiptLanguage existed) will still accept this POST and
+// return 200 — it just silently ignores the fields its own schema predates,
+// so the saved value quietly reverts to a default on the very next config
+// read. That looked like "the UI doesn't actually change what prints" (a
+// real bug report, twice) when the real cause was a stale agent build, not
+// application logic. Catch it here instead of downstream: read back what
+// the agent actually echoed and fail loudly if it dropped something we
+// just asked it to persist, rather than let the caller believe it worked.
 async function saveAgentPrinterConfig(config: PrinterConfig): Promise<void> {
   if (isElectronPrint()) {
     await window.electronPrintAPI!.saveConfig(config);
@@ -134,6 +143,15 @@ async function saveAgentPrinterConfig(config: PrinterConfig): Promise<void> {
     body: JSON.stringify(config),
   });
   if (!res.ok) throw new Error('Could not save printer configuration');
+  const saved = await res.json().catch(() => null);
+  if (
+    saved &&
+    (saved.paperWidth !== config.paperWidth ||
+      saved.receiptTemplate !== config.receiptTemplate ||
+      saved.receiptLanguage !== config.receiptLanguage)
+  ) {
+    throw new Error('Your Print Agent is out of date and doesn\'t support bill formatting yet — please update/reinstall it, then try again.');
+  }
 }
 
 // Assigns (or clears, with an empty printerName) the printer a given
@@ -169,14 +187,19 @@ export async function setReceiptLanguage(receiptLanguage: ReceiptLanguage): Prom
 }
 
 // Thermal printers print a fixed number of characters per line depending on
-// roll width — 32 for 58mm, 48 for 80mm at the printer's default font.
+// roll width — 32 for 58mm, 42 for 80mm at the printer's default font (Font
+// A, the near-universal default on 80mm thermal receipt printers). 48 was
+// tried first but is Font B's count, not Font A's — it overruns the real
+// printable width by a handful of dots, clipping the last 1-2 characters of
+// every right-aligned amount off the edge of the paper (confirmed against a
+// real printed receipt, not just spec sheets).
 // Every ESC/POS template call site needs both this and which template is
 // selected, so callers fetch config once up front via this helper rather
 // than each reaching into getAgentPrinterConfig() separately.
 export async function getReceiptPrintOptions(): Promise<{ charsPerLine: number; template: ReceiptTemplateName; language: ReceiptLanguage }> {
   const config = await getAgentPrinterConfig();
   return {
-    charsPerLine: config.paperWidth === '58mm' ? 32 : 48,
+    charsPerLine: config.paperWidth === '58mm' ? 32 : 42,
     template: config.receiptTemplate,
     language: config.receiptLanguage,
   };
