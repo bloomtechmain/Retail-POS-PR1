@@ -74,7 +74,10 @@ export default function App() {
         <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="promotions" />}>
           <Route path="/promotions" element={<Promotions />} />
         </Route>
-        <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="reports" />}>
+        {/* 'daily_report' is the floor every plan has — Reports.tsx itself
+            renders the full multi-tab suite instead of the cut-down daily
+            summary once 'reports' (Standard+) is also present. */}
+        <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="daily_report" />}>
           <Route path="/reports" element={<Reports />} />
         </Route>
         <Route element={<ProtectedRoute roles={['admin', 'manager']} feature="customers" />}>

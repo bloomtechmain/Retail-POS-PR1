@@ -18,6 +18,17 @@ export default function Login() {
     e.preventDefault();
     try {
       await login(email, password);
+      // App.tsx's one-time fetchSettings() ran before login, with no auth
+      // token yet — for a hosted (multi-tenant) account that returned
+      // whatever tenant-ambiguous defaults the unauthenticated request
+      // resolves to (setup_completed: false among them), not this user's
+      // real business. Without re-fetching now that we have a token, that
+      // stale pre-login snapshot sticks around for the rest of the session
+      // — harmless if you were already logged in earlier in the same tab,
+      // but on every *fresh* page load (a real app restart, not just
+      // logout/login within one still-running session) it means Setup
+      // wrongly reappears for a business that already completed it.
+      await useSettingsStore.getState().fetchSettings();
       navigate('/pos');
     } catch (err) {
       const axiosErr = err as AxiosError<{ message: string }>;

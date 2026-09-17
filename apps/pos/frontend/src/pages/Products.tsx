@@ -313,7 +313,7 @@ export default function Products() {
             )}
             {!hasFeature('fifo_costing') && (
               <p className="text-xs text-surface-400 mt-1">
-                FIFO / Batch-wise costing is available on the Professional plan and up.
+                FIFO / Batch-wise costing isn't included in this account's current feature set.
               </p>
             )}
           </div>

@@ -22,6 +22,24 @@ export const salesReport = async (req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err); }
 };
 
+// Basic-tier reporting: today's sales summary only, and deliberately never
+// trusts a caller-supplied date range the way salesReport does — a Basic
+// tenant only has 'daily_report', not 'reports', so this is the one report
+// endpoint reachable with just that feature, and it always computes "today"
+// itself rather than accepting date_from/date_to. That's what keeps this a
+// real server-side restriction rather than a client-side-only UI lock.
+export const dailySalesReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await reportService.getSalesReport({
+      date_from: today,
+      date_to: today,
+      group_by: 'day',
+    });
+    res.json({ success: true, data: { date: today, ...result.summary } });
+  } catch (err) { next(err); }
+};
+
 export const productSalesReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { date_from, date_to } = req.query;

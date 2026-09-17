@@ -7,7 +7,7 @@ const PLAN_LABELS: Record<string, string> = {
   basic: 'Basic',
   standard: 'Standard',
   professional: 'Professional',
-  enterprise: 'Enterprise',
+  custom: 'Custom',
 };
 
 const hasOwnStats = (data: AdminDashboardStats | AgentDashboardStats): data is AgentDashboardStats =>

@@ -26,6 +26,7 @@ export interface Settings {
 }
 
 export type FeatureKey =
+  | 'daily_report'
   | 'reports'
   | 'users'
   | 'promotions'

@@ -4,14 +4,19 @@ import { fetchPlans, signupTenant, Plan, SignupResult } from './services/api';
 const POS_APP_URL = import.meta.env.VITE_POS_APP_URL || '/';
 
 const FEATURE_LABELS: Record<string, string> = {
-  reports: 'Reports & analytics',
+  daily_report: "Today's sales summary",
+  reports: 'Full reports & analytics (history, all report types)',
   users: 'Multiple staff logins',
   promotions: 'Promotions & discounts',
+  coupons: 'Coupon codes',
   customers: 'Credit customers',
-  fifo_costing: 'Batch / FIFO costing',
+  fifo_costing: 'Batch / FIFO costing + expiry tracking',
   multi_language: 'Multi-language',
   multi_currency: 'Multi-currency',
   vat_invoice: 'VAT tax invoices',
+  restaurant_mode: 'Restaurant Mode (tables, dine-in/takeaway)',
+  kot_printing: 'Kitchen ticket (KOT) printing',
+  multi_terminal: 'Multi-terminal / LAN mode',
 };
 
 function App() {

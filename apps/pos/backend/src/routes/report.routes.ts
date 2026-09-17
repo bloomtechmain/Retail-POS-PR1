@@ -11,6 +11,10 @@ router.use(authenticate);
 // own endpoints are gated behind the 'reports' feature.
 router.get('/dashboard', reportController.dashboard);
 router.get('/inventory', reportController.inventoryReport);
+// Basic-tier only: today's sales summary, no date-range control — see
+// dailySalesReport's own comment for why this is a separate endpoint
+// rather than just a restricted client for /sales.
+router.get('/sales/daily', requireFeature('daily_report'), reportController.dailySalesReport);
 router.get('/sales', requireFeature('reports'), reportController.salesReport);
 router.get('/product-sales', requireFeature('reports'), reportController.productSalesReport);
 router.get('/cashiers', requireFeature('reports'), reportController.cashierReport);

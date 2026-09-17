@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { fetchPlans, createCustomer, Plan } from '../services/api';
 
 const FEATURE_LABELS: Record<string, string> = {
-  reports: 'Reports & analytics',
+  daily_report: "Today's sales summary",
+  reports: 'Full reports & analytics (history, all report types)',
   users: 'Multiple staff logins',
   promotions: 'Promotions & discounts',
   coupons: 'Coupon codes',
   customers: 'Credit customers',
-  fifo_costing: 'Batch / FIFO costing',
+  fifo_costing: 'Batch / FIFO costing + expiry tracking',
   multi_language: 'Multi-language',
   multi_currency: 'Multi-currency',
   vat_invoice: 'VAT tax invoices',
@@ -253,6 +254,8 @@ export default function CreateCustomer() {
           <label className="label">Features</label>
           <p className="text-xs text-surface-500 mb-2">
             Auto-filled from the selected package — tick or untick to customize for this customer.
+            Bill/receipt printing, products, inventory, GRN, shifts, and backup aren't listed here —
+            every package includes them, they're core to the POS, not a plan upsell.
           </p>
           <div className="grid grid-cols-2 gap-2 bg-surface-50 border border-surface-200 rounded-lg p-3">
             {ALL_FEATURES.map((f) => (

@@ -1,7 +1,13 @@
 // Feature keys — one per gated page/capability. A plan's `features` array is
 // cumulative (each tier repeats everything the tier below it has, plus its
 // own additions) so a single `.includes()` check is all callers ever need.
+//
+// Bill/receipt printing is deliberately NOT in this list — it's a core POS
+// function available unconditionally on every plan, including Basic, and
+// was never gated by a FeatureKey. Keep it that way; don't add a
+// 'printing' key here.
 export type FeatureKey =
+  | 'daily_report'
   | 'reports'
   | 'users'
   | 'promotions'
@@ -32,10 +38,10 @@ export const PLANS: Record<string, Plan> = {
   basic: {
     key: 'basic',
     name: 'Basic',
-    tagline: 'A single till, keep it simple',
+    tagline: 'A single till, know your numbers',
     max_users: 1,
     max_terminals: 0,
-    features: ['multi_currency'],
+    features: ['multi_currency', 'fifo_costing', 'daily_report'],
   },
   standard: {
     key: 'standard',
@@ -43,23 +49,29 @@ export const PLANS: Record<string, Plan> = {
     tagline: 'Growing shop, more than one cashier',
     max_users: 5,
     max_terminals: 0,
-    features: ['reports', 'users', 'promotions', 'coupons', 'multi_currency'],
+    features: ['multi_currency', 'fifo_costing', 'daily_report', 'reports', 'users', 'promotions', 'coupons', 'multi_language'],
   },
   professional: {
     key: 'professional',
     name: 'Professional',
-    tagline: 'Credit customers, batch costing, multi-branch-ready',
+    tagline: 'Everything a serious shop needs',
     max_users: 15,
-    max_terminals: 0,
-    features: ['reports', 'users', 'promotions', 'coupons', 'customers', 'fifo_costing', 'multi_language', 'multi_currency', 'restaurant_mode', 'kot_printing'],
+    max_terminals: 5,
+    features: ['multi_currency', 'fifo_costing', 'daily_report', 'reports', 'users', 'promotions', 'coupons', 'multi_language', 'customers', 'restaurant_mode', 'kot_printing', 'vat_invoice', 'multi_terminal'],
   },
-  enterprise: {
-    key: 'enterprise',
-    name: 'Enterprise',
-    tagline: 'Full compliance tooling, unlimited staff',
+  // Not a bigger fixed feature list than Professional — there isn't one left
+  // (Professional already carries every FeatureKey that exists). Custom's
+  // actual differentiators are unlimited staff and being the explicit
+  // "start from everything, then tailor per customer" tier via the existing
+  // customFeatures override (see planIncludes below / CreateCustomer.tsx's
+  // per-customer feature editing) rather than a rigid bundle.
+  custom: {
+    key: 'custom',
+    name: 'Custom',
+    tagline: "Tell us what you need — we'll tailor it",
     max_users: null,
     max_terminals: 5,
-    features: ['reports', 'users', 'promotions', 'coupons', 'customers', 'fifo_costing', 'multi_language', 'multi_currency', 'vat_invoice', 'restaurant_mode', 'kot_printing', 'multi_terminal'],
+    features: ['multi_currency', 'fifo_costing', 'daily_report', 'reports', 'users', 'promotions', 'coupons', 'multi_language', 'customers', 'restaurant_mode', 'kot_printing', 'vat_invoice', 'multi_terminal'],
   },
 };
 

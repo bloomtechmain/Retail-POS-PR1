@@ -763,12 +763,28 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', () => {
-  cleanup();
+// cleanup() is async, so before-quit has to preventDefault() and re-fire
+// app.quit() itself once postgres has actually finished stopping —
+// otherwise Electron proceeds to quit immediately after the handler
+// returns, exactly the race that used to lose the last commit on shutdown.
+// Shared between both handlers below so window-all-closed's own cleanup()
+// call doesn't get redundantly repeated by the before-quit it triggers.
+let quittingCleanly = false;
+
+app.on('window-all-closed', async () => {
+  await cleanup();
+  quittingCleanly = true;
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', cleanup);
+app.on('before-quit', (event) => {
+  if (quittingCleanly) return;
+  event.preventDefault();
+  cleanup().finally(() => {
+    quittingCleanly = true;
+    app.quit();
+  });
+});
 
 // ─── Activation Window ────────────────────────────────────────────────────────
 function showActivationWindow(reason) {
@@ -1520,7 +1536,18 @@ async function runMigrations() {
 }
 
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
-function cleanup() {
+// Must be awaited all the way through before the app is allowed to actually
+// quit (see the before-quit/window-all-closed handlers below). This used to
+// fire pgInstance.stop() without awaiting it and return immediately — on a
+// normal logout that's invisible (postgres just keeps running, nothing here
+// even runs), but on a real app quit / Windows shutdown, Electron tore the
+// process down while pg_ctl stop was still mid-flight, before the most
+// recently committed writes were guaranteed flushed — e.g. finishing the
+// first-run setup wizard right before shutting down the PC, then seeing it
+// reappear next boot because that commit never made it to disk. Same
+// "poll until the port actually closes" pattern already used by
+// stopPostgresForMaintenance() for backups, applied to normal shutdown too.
+async function cleanup() {
   if (revocationCheckInterval) {
     clearInterval(revocationCheckInterval);
     revocationCheckInterval = null;
@@ -1534,8 +1561,13 @@ function cleanup() {
     backendProcess = null;
   }
   if (pgInstance) {
-    pgInstance.stop().catch(() => {});
+    const stoppingInstance = pgInstance;
     pgInstance = null;
+    await stoppingInstance.stop().catch(() => {});
+    for (let i = 0; i < 20; i++) {
+      if (!(await checkTcpPort(PG_PORT))) break;
+      await delay(300);
+    }
   }
 }
 

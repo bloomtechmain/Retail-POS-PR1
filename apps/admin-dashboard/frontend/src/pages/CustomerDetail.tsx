@@ -11,7 +11,7 @@ const PLAN_LABELS: Record<string, string> = {
   basic: 'Basic',
   standard: 'Standard',
   professional: 'Professional',
-  enterprise: 'Enterprise',
+  custom: 'Custom',
 };
 
 const POS_DOWNLOAD_URL = 'https://app.bloomswiftpos.com/downloads/BloomPOS-Setup.exe';

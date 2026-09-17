@@ -5,6 +5,8 @@ import api from '../services/api';
 import { useT } from '../i18n/translations';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { formatQuantity } from '../utils/units';
+import { useSettingsStore } from '../store/settingsStore';
+import DailyReport from './DailyReport';
 
 const today = new Date().toISOString().slice(0, 10);
 const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
@@ -13,6 +15,7 @@ type ReportTab = 'sales' | 'products' | 'inventory' | 'cashiers' | 'credit' | 's
 
 export default function Reports() {
   const t = useT();
+  const hasFullReports = useSettingsStore((s) => s.hasFeature('reports'));
   const [tab, setTab] = useState<ReportTab>('sales');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(today);
@@ -26,6 +29,10 @@ export default function Reports() {
   const [promotionsData, setPromotionsData] = useState<{ promotions: unknown[]; coupons: unknown[] }>({ promotions: [], coupons: [] });
 
   const load = useCallback(async () => {
+    // Basic-tier ('daily_report' only) renders <DailyReport/> below instead
+    // — skip firing any of the 'reports'-gated endpoints for it at all,
+    // rather than letting them 403 in the background.
+    if (!hasFullReports) return;
     setLoading(true);
     try {
       if (tab === 'sales') {
@@ -51,9 +58,11 @@ export default function Reports() {
         setPromotionsData(r.data.data);
       }
     } finally { setLoading(false); }
-  }, [tab, dateFrom, dateTo]);
+  }, [tab, dateFrom, dateTo, hasFullReports]);
 
   useEffect(() => { load(); }, [load]);
+
+  if (!hasFullReports) return <DailyReport />;
 
   const tabs: Array<{ key: ReportTab; label: string }> = [
     { key: 'sales', label: t.reports_tab_sales },
