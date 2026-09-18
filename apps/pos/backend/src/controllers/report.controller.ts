@@ -31,12 +31,11 @@ export const salesReport = async (req: AuthRequest, res: Response, next: NextFun
 export const dailySalesReport = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const result = await reportService.getSalesReport({
-      date_from: today,
-      date_to: today,
-      group_by: 'day',
-    });
-    res.json({ success: true, data: { date: today, ...result.summary } });
+    const [result, transactions] = await Promise.all([
+      reportService.getSalesReport({ date_from: today, date_to: today, group_by: 'day' }),
+      reportService.getDailyTransactions({ date_from: today, date_to: today }),
+    ]);
+    res.json({ success: true, data: { date: today, ...result.summary, transactions } });
   } catch (err) { next(err); }
 };
 

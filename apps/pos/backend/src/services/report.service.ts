@@ -210,6 +210,35 @@ export const getSalesReport = async (params: {
   return { periods: result.rows, summary: summary.rows[0] };
 };
 
+// Every individual sale in the range, with its line items nested — backs
+// the Basic-tier daily report's transaction list. Deliberately includes
+// every status (not just completed/refunded like the summary above) so a
+// voided or held sale isn't silently missing from "every transaction".
+export const getDailyTransactions = async (params: { date_from: string; date_to: string }) => {
+  const result = await query(
+    `SELECT
+       s.id, s.sale_number, s.created_at, s.status, s.payment_method,
+       u.name as cashier_name, s.customer_name,
+       s.subtotal, s.discount_amount, s.tax_amount, s.total_amount,
+       COALESCE(
+         (SELECT json_agg(json_build_object(
+            'product_name', si.product_name,
+            'quantity', si.quantity,
+            'unit_price', si.unit_price,
+            'subtotal', si.subtotal
+          ) ORDER BY si.id)
+          FROM sale_items si WHERE si.sale_id = s.id),
+         '[]'
+       ) as items
+     FROM sales s
+     LEFT JOIN users u ON s.cashier_id = u.id
+     WHERE s.created_at BETWEEN $1 AND $2
+     ORDER BY s.created_at ASC`,
+    [params.date_from, params.date_to + ' 23:59:59']
+  );
+  return result.rows;
+};
+
 export const getProductSalesReport = async (params: { date_from: string; date_to: string }) => {
   const result = await query(
     // si.subtotal is the line's post-item-discount, post-tax total — it does NOT
