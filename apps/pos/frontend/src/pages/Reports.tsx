@@ -7,6 +7,7 @@ import { formatCurrency as fmt } from '../utils/formatCurrency';
 import { formatQuantity } from '../utils/units';
 import { useSettingsStore } from '../store/settingsStore';
 import DailyReport from './DailyReport';
+import { generateFullReportPdf } from '../utils/generateFullReportPdf';
 
 const today = new Date().toISOString().slice(0, 10);
 const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
@@ -16,6 +17,7 @@ type ReportTab = 'sales' | 'products' | 'inventory' | 'cashiers' | 'credit' | 's
 export default function Reports() {
   const t = useT();
   const hasFullReports = useSettingsStore((s) => s.hasFeature('reports'));
+  const settings = useSettingsStore((s) => s.settings);
   const [tab, setTab] = useState<ReportTab>('sales');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(today);
@@ -78,9 +80,24 @@ export default function Reports() {
     <PageContainer>
       <div className="page-header">
         <h1 className="page-title">{t.reports_title}</h1>
-        <button onClick={() => window.print()} className="btn-secondary btn-sm">
-          🖨️ Print
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => settings && generateFullReportPdf(
+              tab,
+              { salesData, productsData, inventoryData, cashiersData, creditData, stockMovementsData, promotionsData },
+              settings,
+              dateFrom,
+              dateTo
+            )}
+            disabled={!settings}
+            className="btn-secondary btn-sm"
+          >
+            ⬇ Download PDF
+          </button>
+          <button onClick={() => window.print()} className="btn-secondary btn-sm">
+            🖨️ Print
+          </button>
+        </div>
       </div>
 
       {/* Tab Bar */}
