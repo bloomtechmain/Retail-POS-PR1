@@ -44,6 +44,15 @@ export interface ProvisionTenantInput {
   // plan's defaults — omitted by the public sign-up website, which always
   // provisions a plain, un-customized plan.
   customFeatures?: FeatureKey[];
+  // True only for agent-provisioned customers (see tenant.controller.ts's
+  // `provision`), where adminPassword is a temporary credential the agent
+  // chose on the customer's behalf — the customer never typed it themselves.
+  // Leaves setup_completed FALSE so ProtectedRoute routes their very first
+  // login through Setup.tsx to set their own password before reaching the
+  // POS. The public self-serve website (`create`) never sets this — there,
+  // the signer already chose their own password directly at signup, so
+  // routing them through Setup again would just be redundant.
+  requirePasswordSetup?: boolean;
 }
 
 export interface ProvisionTenantResult {
@@ -96,10 +105,11 @@ export const provisionTenant = async (input: ProvisionTenantInput): Promise<Prov
       await client.query(statement);
     }
 
+    const setupCompleted = !input.requirePasswordSetup;
     await client.query(
       `INSERT INTO settings (business_name, business_type, plan_key, custom_features, currency_code, currency_symbol, setup_completed)
-       VALUES ($1,$2,$3,$4,$5,$6,TRUE)
-       ON CONFLICT (id) DO UPDATE SET business_name = $1, business_type = $2, plan_key = $3, custom_features = $4, currency_code = $5, currency_symbol = $6, setup_completed = TRUE`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (id) DO UPDATE SET business_name = $1, business_type = $2, plan_key = $3, custom_features = $4, currency_code = $5, currency_symbol = $6, setup_completed = $7`,
       [
         input.businessName.trim(),
         input.businessType || '',
@@ -107,6 +117,7 @@ export const provisionTenant = async (input: ProvisionTenantInput): Promise<Prov
         input.customFeatures ? JSON.stringify(input.customFeatures) : null,
         input.currencyCode || 'USD',
         input.currencySymbol || '$',
+        setupCompleted,
       ]
     );
 

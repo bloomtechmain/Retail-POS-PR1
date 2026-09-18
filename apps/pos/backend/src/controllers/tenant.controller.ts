@@ -31,6 +31,7 @@ export const provision = async (req: Request, res: Response, next: NextFunction)
       adminPassword: req.body.adminPassword,
       planKey: req.body.planKey,
       customFeatures: req.body.customFeatures,
+      requirePasswordSetup: true,
     });
     res.status(201).json({ success: true, data: result });
   } catch (err) { next(err); }
