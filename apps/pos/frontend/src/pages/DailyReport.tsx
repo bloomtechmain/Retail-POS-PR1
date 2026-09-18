@@ -3,6 +3,8 @@ import { PageContainer } from '../components/layout/Layout';
 import { PageLoader } from '../components/ui/LoadingSpinner';
 import api from '../services/api';
 import { formatCurrency as fmt } from '../utils/formatCurrency';
+import { generateDailyReportPdf } from '../utils/generateDailyReportPdf';
+import { useSettingsStore } from '../store/settingsStore';
 
 interface DailySummary {
   date: string;
@@ -21,6 +23,7 @@ interface DailySummary {
 export default function DailyReport() {
   const [data, setData] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const settings = useSettingsStore((s) => s.settings);
 
   useEffect(() => {
     api.get('/reports/sales/daily')
@@ -32,11 +35,20 @@ export default function DailyReport() {
 
   return (
     <PageContainer className="max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-surface-900">Today's Sales</h1>
-        <p className="text-surface-500 text-sm mt-1">
-          {data ? new Date(data.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : ''}
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-surface-900">Today's Sales</h1>
+          <p className="text-surface-500 text-sm mt-1">
+            {data ? new Date(data.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : ''}
+          </p>
+        </div>
+        <button
+          onClick={() => data && settings && generateDailyReportPdf(data, settings)}
+          disabled={!data || !settings}
+          className="btn-secondary btn-sm shrink-0"
+        >
+          ⬇ Download PDF
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
