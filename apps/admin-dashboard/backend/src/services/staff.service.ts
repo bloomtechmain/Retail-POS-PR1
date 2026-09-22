@@ -241,14 +241,27 @@ export const getCustomerDetail = async (customerId: number, staff: { staff_id: n
 
 // Agent confirms payment was received (outside this system — cash/bank
 // transfer, checked manually) and renews the customer's package for another
-// cycle. The next cycle is anchored to the END of the current one, not to
-// whenever during the grace week the renewal actually happens — otherwise a
-// customer who always pays a few days late would slowly drift later and
-// later each month. Only falls back to "a month from today" if the
-// anchored date would already be in the past (a genuinely lapsed renewal).
+// cycle.
 //
-// Online: same anchored date, nothing else changes.
-// Offline: the license itself is single-use-per-cycle — Electron enforces
+// Online: always a fresh full period starting from NOW (the moment of
+// reactivation), never anchored to the old end date. Online has zero grace
+// (see auth.service.ts) — the instant a subscription lapses, login is
+// blocked outright, so every day between expiry and an admin actually
+// clicking Reactivate is a day the customer had NO access at all. Anchoring
+// to the old end date would silently eat into their paid-for next period by
+// exactly that many days — not something the customer did anything to
+// cause. Explicit product decision (2026-09-22): online always gets the
+// full period from today, however late the reactivation happens.
+//
+// Offline: unchanged — still anchored to the END of the current cycle, not
+// to whenever during the grace week the renewal actually happens,
+// otherwise a customer who always pays a few days late would slowly drift
+// later and later each month. Only falls back to "a period from today" if
+// the anchored date would already be in the past (a genuinely lapsed
+// renewal). This still makes sense for offline specifically because its
+// grace window means the customer keeps *usable* access right up to the
+// hard cutoff — unlike online, no access is silently lost while waiting on
+// the admin. The license itself is single-use-per-cycle — Electron enforces
 // the hard cutoff locally (license.js's checkLicense(), no network needed),
 // so restoring the OLD key can't un-expire an already-lapsed install. A
 // renewal must issue a genuinely NEW key instead, which the agent/admin
@@ -265,17 +278,19 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
   // hardcoded literals selected by row.is_test, safe to interpolate.
   const periodInterval = row.is_test ? TEST_PERIOD_INTERVAL : '1 month';
   const graceMs = row.is_test ? TEST_GRACE_MS : REAL_GRACE_MS;
-  const anchoredEnd = (
-    await query(
-      `SELECT CASE
-         WHEN subscription_end_date + INTERVAL '${periodInterval}' > NOW()
-           THEN subscription_end_date + INTERVAL '${periodInterval}'
-         ELSE NOW() + INTERVAL '${periodInterval}'
-       END AS end_date
-       FROM platform_customers WHERE id = $1`,
-      [customerId]
-    )
-  ).rows[0].end_date;
+  const anchoredEnd = row.delivery_type === 'online'
+    ? (await query(`SELECT NOW() + INTERVAL '${periodInterval}' AS end_date`, [])).rows[0].end_date
+    : (
+        await query(
+          `SELECT CASE
+             WHEN subscription_end_date + INTERVAL '${periodInterval}' > NOW()
+               THEN subscription_end_date + INTERVAL '${periodInterval}'
+             ELSE NOW() + INTERVAL '${periodInterval}'
+           END AS end_date
+           FROM platform_customers WHERE id = $1`,
+          [customerId]
+        )
+      ).rows[0].end_date;
 
   let newLicenseKey: string | null = null;
   if (row.delivery_type === 'offline' && row.license_key) {
