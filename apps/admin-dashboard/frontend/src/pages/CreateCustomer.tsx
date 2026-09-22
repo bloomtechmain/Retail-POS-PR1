@@ -38,6 +38,8 @@ export default function CreateCustomer() {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [notes, setNotes] = useState('');
+  const [totalPrice, setTotalPrice] = useState('');
+  const [installmentCount, setInstallmentCount] = useState('1');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -78,6 +80,8 @@ export default function CreateCustomer() {
     setAdminEmail('');
     setAdminPassword('');
     setNotes('');
+    setTotalPrice('');
+    setInstallmentCount('1');
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -86,6 +90,16 @@ export default function CreateCustomer() {
     if (!customerName.trim() || !customerEmail.trim() || !adminEmail.trim() || !adminPassword) {
       setError('Please fill in every required field.');
       return;
+    }
+    if (deliveryType === 'offline') {
+      if (!(Number(totalPrice) > 0)) {
+        setError('Total price is required for offline customers.');
+        return;
+      }
+      if (!(Number(installmentCount) >= 1)) {
+        setError('Installment count must be at least 1.');
+        return;
+      }
     }
     if (adminPassword.length < 6) {
       setError('Login password must be at least 6 characters.');
@@ -112,6 +126,8 @@ export default function CreateCustomer() {
         adminEmail: adminEmail.trim(),
         adminPassword,
         notes: notes.trim() || undefined,
+        totalPrice: deliveryType === 'offline' ? Number(totalPrice) : undefined,
+        installmentCount: deliveryType === 'offline' ? Number(installmentCount) : undefined,
       });
       setResult({
         delivery_type: data.delivery_type,
@@ -207,7 +223,7 @@ export default function CreateCustomer() {
               >
                 <div className="font-medium text-surface-900 capitalize">{t}</div>
                 <div className="text-xs text-surface-500">
-                  {t === 'online' ? 'Hosted web POS' : 'Desktop app, license key'}
+                  {t === 'online' ? 'Hosted web POS' : 'Desktop app, paid in installments'}
                 </div>
               </button>
             ))}
@@ -228,6 +244,28 @@ export default function CreateCustomer() {
             <input className="input" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
           </div>
         </div>
+
+        {deliveryType === 'offline' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-surface-50 border border-surface-200 rounded-lg p-4">
+            <div className="sm:col-span-2 text-xs text-surface-500 -mt-1 mb-1">
+              Offline is an outright purchase, not a subscription — the customer buys the whole POS at this
+              price, paid off in monthly installments. Creating this account counts as installment #1 collected.
+            </div>
+            <div>
+              <label className="label">Total price</label>
+              <input className="input" type="number" min="0" step="0.01" value={totalPrice} onChange={(e) => setTotalPrice(e.target.value)} placeholder="e.g. 60000" />
+            </div>
+            <div>
+              <label className="label">Number of installments</label>
+              <input className="input" type="number" min="1" step="1" value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
+              {Number(totalPrice) > 0 && Number(installmentCount) >= 1 && (
+                <p className="text-xs text-surface-500 mt-1">
+                  ≈ {(Number(totalPrice) / Number(installmentCount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} per month
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="label">Package</label>

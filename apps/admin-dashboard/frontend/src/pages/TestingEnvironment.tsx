@@ -44,6 +44,8 @@ export default function TestingEnvironment() {
   const [planKey, setPlanKey] = useState('basic');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [totalPrice, setTotalPrice] = useState('60000');
+  const [installmentCount, setInstallmentCount] = useState('3');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
@@ -94,6 +96,16 @@ export default function TestingEnvironment() {
       setError('Login password must be at least 6 characters.');
       return;
     }
+    if (deliveryType === 'offline') {
+      if (!(Number(totalPrice) > 0)) {
+        setError('Total price is required for offline customers.');
+        return;
+      }
+      if (!(Number(installmentCount) >= 1)) {
+        setError('Installment count must be at least 1.');
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const data = await createCustomer({
@@ -104,6 +116,8 @@ export default function TestingEnvironment() {
         adminEmail: adminEmail.trim(),
         adminPassword,
         isTest: true,
+        totalPrice: deliveryType === 'offline' ? Number(totalPrice) : undefined,
+        installmentCount: deliveryType === 'offline' ? Number(installmentCount) : undefined,
       });
       setResult({
         delivery_type: data.delivery_type,
@@ -206,7 +220,7 @@ export default function TestingEnvironment() {
                     }`}
                   >
                     <div className="font-medium text-surface-900 capitalize">{t}</div>
-                    <div className="text-xs text-surface-500">{t === 'online' ? 'Hosted web POS' : 'Desktop app, license key'}</div>
+                    <div className="text-xs text-surface-500">{t === 'online' ? 'Hosted web POS' : 'Desktop app, paid in installments'}</div>
                   </button>
                 ))}
               </div>
@@ -222,6 +236,23 @@ export default function TestingEnvironment() {
                 <input className="input" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
               </div>
             </div>
+
+            {deliveryType === 'offline' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-surface-50 border border-surface-200 rounded-lg p-4">
+                <div className="sm:col-span-2 text-xs text-surface-500 -mt-1 mb-1">
+                  Same installment cycle as the real system — creating this counts as installment #1, then
+                  each Renew is the next installment, 1 hour apart with a 10-minute grace.
+                </div>
+                <div>
+                  <label className="label">Total price</label>
+                  <input className="input" type="number" min="0" step="0.01" value={totalPrice} onChange={(e) => setTotalPrice(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Number of installments</label>
+                  <input className="input" type="number" min="1" step="1" value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="label">Package</label>
@@ -266,22 +297,29 @@ export default function TestingEnvironment() {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-surface-900 truncate">{c.customer_name}</span>
                     <span className={c.delivery_type === 'online' ? 'badge-blue' : 'badge-gray'}>{c.delivery_type}</span>
-                    <span className={!c.is_active ? 'badge-red' : c.ms_remaining < 0 ? 'badge-yellow' : 'badge-green'}>
-                      {!c.is_active ? 'Deactivated' : c.ms_remaining < 0 ? 'Expired' : 'Active'}
+                    <span className={c.is_fully_paid ? 'badge-green' : !c.is_active ? 'badge-red' : c.ms_remaining < 0 ? 'badge-yellow' : 'badge-green'}>
+                      {c.is_fully_paid ? 'Fully Paid' : !c.is_active ? 'Deactivated' : c.ms_remaining < 0 ? 'Expired' : 'Active'}
                     </span>
+                    {c.total_price != null && c.installment_count != null && !c.is_fully_paid && (
+                      <span className="badge-gray">Installment {c.installments_paid} of {c.installment_count}</span>
+                    )}
                   </div>
                   <div className="text-xs text-surface-500 mt-0.5">{c.customer_email} · {c.plan_key}</div>
-                  <div className={`text-xs mt-1 font-mono ${c.ms_remaining < 0 ? 'text-red-600' : 'text-surface-600'}`}>
-                    {formatCountdown(c.ms_remaining)}
-                  </div>
+                  {!c.is_fully_paid && (
+                    <div className={`text-xs mt-1 font-mono ${c.ms_remaining < 0 ? 'text-red-600' : 'text-surface-600'}`}>
+                      {formatCountdown(c.ms_remaining)}
+                    </div>
+                  )}
                   {c.delivery_type === 'offline' && c.license_key && (
                     <div className="text-xs mt-1 font-mono text-surface-400 truncate">{c.license_key}</div>
                   )}
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button className="btn-secondary btn-sm" disabled={busyId === c.id} onClick={() => handleReactivate(c)}>
-                    {busyId === c.id ? '...' : c.delivery_type === 'offline' ? 'Renew (New Key)' : 'Reactivate'}
-                  </button>
+                  {!c.is_fully_paid && (
+                    <button className="btn-secondary btn-sm" disabled={busyId === c.id} onClick={() => handleReactivate(c)}>
+                      {busyId === c.id ? '...' : c.delivery_type === 'offline' ? 'Renew (New Key)' : 'Reactivate'}
+                    </button>
+                  )}
                   <button className="btn-secondary btn-sm text-red-600" disabled={busyId === c.id} onClick={() => handleDelete(c)}>
                     Delete
                   </button>

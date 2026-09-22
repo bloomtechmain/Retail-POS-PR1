@@ -61,6 +61,10 @@ export interface PlatformCustomer {
   is_active: boolean;
   is_test: boolean;
   ms_remaining: number;
+  total_price: number | null;
+  installment_count: number | null;
+  installments_paid: number;
+  is_fully_paid: boolean;
 }
 
 export interface Agent {
@@ -93,6 +97,8 @@ export interface CreateCustomerInput {
   adminPassword: string;
   notes?: string;
   isTest?: boolean;
+  totalPrice?: number;
+  installmentCount?: number;
 }
 
 export const createCustomer = async (input: CreateCustomerInput): Promise<PlatformCustomer & { adminEmail: string; adminPassword: string }> => {

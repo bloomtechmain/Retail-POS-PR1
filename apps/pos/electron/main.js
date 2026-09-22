@@ -21,7 +21,14 @@ const RECEIPT_TEMPLATES = ['standard', 'compact', 'detailed', 'minimal', 'formal
 // Same default shown on the activation screen — used for the background
 // revocation check below, which never prompts the user for a server URL.
 const DEFAULT_LICENSE_SERVER_URL = 'https://dashboard.bloomswiftpos.com/license-api';
-const REVOCATION_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+// 1 minute (was 30) — this interval is also what catches a license's own
+// exp claim (subscription/installment period + grace) lapsing WHILE the app
+// is already open, not just at next launch (see checkForPackageRevocation's
+// 'expired' status below). A test-mode installment's 10-minute grace would
+// mostly go undetected at 30-minute resolution; 1 minute is cheap (a local
+// JWT decode, occasionally one network call) and catches both timescales
+// promptly. Matches BACKUP_SCHEDULE_CHECK_INTERVAL_MS's existing precedent.
+const REVOCATION_CHECK_INTERVAL_MS = 60 * 1000;
 
 // ─── Single Instance Lock ─────────────────────────────────────────────────────
 // Prevents EADDRINUSE when user double-clicks the shortcut while app is running.
@@ -47,18 +54,24 @@ let revocationCheckInterval = null;
 let pgBinaryPath = null; // set once in startPostgres(), reused to restart postgres after a backup/restore
 let backupScheduleInterval = null;
 
-// Best-effort re-verification of the currently stored key against the
-// license server — this is the ONLY point where an already-activated
-// offline install ever talks to the server again. It exists purely to
-// notice when an admin/agent has upgraded or renewed the package (both
-// generate a brand-new key and revoke this one), so we can bring the
-// customer back to the activation screen instead of leaving them silently
-// stuck on their old plan forever. Any network failure (no internet, server
-// down, timeout) is swallowed — this must never disrupt normal offline use.
+// Re-checks the currently stored license every interval while the app is
+// running — the ONLY two things that can change a valid license into an
+// invalid one after launch: (1) checkLicense()'s own local exp check (the
+// subscription/installment period + grace lapsing — see license.js), which
+// needs zero network access and is what makes automatic mid-session
+// lockout work even with no internet at all; (2) an admin/agent explicitly
+// renewing or upgrading the customer elsewhere, which revokes this key
+// server-side (a network call, best-effort — any failure here, no
+// internet, server down, timeout, is swallowed and just tried again next
+// interval; this must never disrupt normal offline use).
 async function checkForPackageRevocation() {
+  const payload = checkLicense(app.getPath('userData'));
+  // No valid payload while a token file still exists on disk (the only way
+  // we'd reach this function at all, since it's only started after a
+  // successful launch-time check already found one) means the local exp
+  // check just failed — the grace period lapsed since we last checked.
+  if (!payload || !payload.lk) return 'expired';
   try {
-    const payload = checkLicense(app.getPath('userData'));
-    if (!payload || !payload.lk) return null;
     const result = await activateLicense(payload.lk, DEFAULT_LICENSE_SERVER_URL, app.getPath('userData'));
     if (!result.success && /revoked/i.test(result.error || '')) {
       return 'revoked';
@@ -69,10 +82,13 @@ async function checkForPackageRevocation() {
   return null;
 }
 
-// Called once revocation is confirmed. Deletes the stale local token so a
-// relaunch can't slip back in on it, warns whoever is at the till, then
-// swaps the main window for the activation screen.
-function triggerReactivation() {
+// Called once expiry or revocation is confirmed. Deletes the stale local
+// token so a relaunch can't slip back in on it, warns whoever is at the
+// till (blocking — no way to dismiss back into the POS), then swaps the
+// main window for the activation screen. This is the enforcement point
+// that makes deactivation automatic and unavoidable while the app is
+// running, exactly like the launch-time check already was at startup.
+function triggerReactivation(reason) {
   if (revocationCheckInterval) {
     clearInterval(revocationCheckInterval);
     revocationCheckInterval = null;
@@ -82,27 +98,32 @@ function triggerReactivation() {
   } catch {}
 
   if (mainWindow && !mainWindow.isDestroyed()) {
+    const isExpired = reason === 'expired';
     dialog.showMessageBoxSync(mainWindow, {
       type: 'info',
-      title: 'Package Updated',
-      message: 'Your subscription package has been updated by your administrator.',
-      detail: 'Click Continue to enter your new license key and activate your new plan.',
+      title: isExpired ? 'Subscription Expired' : 'Package Updated',
+      message: isExpired
+        ? 'Your subscription/installment period has expired.'
+        : 'Your subscription package has been updated by your administrator.',
+      detail: isExpired
+        ? 'Contact your agent to make your payment, then enter the new license key they generate to continue.'
+        : 'Click Continue to enter your new license key and activate your new plan.',
       buttons: ['Continue'],
     });
     mainWindow.close();
     mainWindow = null;
   }
 
-  showActivationWindow('revoked');
+  showActivationWindow(reason);
 }
 
 function startRevocationChecks() {
   checkForPackageRevocation().then((status) => {
-    if (status === 'revoked') triggerReactivation();
+    if (status === 'revoked' || status === 'expired') triggerReactivation(status);
   });
   revocationCheckInterval = setInterval(() => {
     checkForPackageRevocation().then((status) => {
-      if (status === 'revoked') triggerReactivation();
+      if (status === 'revoked' || status === 'expired') triggerReactivation(status);
     });
   }, REVOCATION_CHECK_INTERVAL_MS);
 }

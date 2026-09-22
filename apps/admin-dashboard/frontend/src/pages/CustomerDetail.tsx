@@ -97,9 +97,18 @@ export default function CustomerDetail() {
 
   const handleReactivate = async () => {
     if (!id || !customer) return;
-    const message = customer.delivery_type === 'offline'
-      ? "Confirm payment has been received and renew this customer's package? A NEW license key will be generated — the old one stops working, so you'll need to give this new key to the customer to re-activate their app."
-      : 'Confirm payment has been received from this customer and renew their package for another month?';
+    const isInstallmentPlan = customer.delivery_type === 'offline' && customer.total_price != null && customer.installment_count != null;
+    const isFinalInstallment = isInstallmentPlan && customer.installments_paid + 1 >= customer.installment_count!;
+    let message: string;
+    if (isFinalInstallment) {
+      message = "Confirm this FINAL installment has been received? The device will be fully paid off — a permanent license key will be generated (no further installments or expiry, ever).";
+    } else if (isInstallmentPlan) {
+      message = `Confirm installment ${customer.installments_paid + 1} of ${customer.installment_count} has been received? A NEW license key will be generated — the old one stops working, so you'll need to give this new key to the customer to re-activate their app.`;
+    } else if (customer.delivery_type === 'offline') {
+      message = "Confirm payment has been received and renew this customer's package? A NEW license key will be generated — the old one stops working, so you'll need to give this new key to the customer to re-activate their app.";
+    } else {
+      message = 'Confirm payment has been received from this customer and renew their package for another month, starting today?';
+    }
     if (!confirm(message)) return;
     setReactivating(true);
     try {
@@ -185,6 +194,7 @@ export default function CustomerDetail() {
 
   const startedDate = new Date(customer.created_at);
   const renewalDate = new Date(customer.subscription_end_date);
+  const isInstallmentPlan = customer.delivery_type === 'offline' && customer.total_price != null && customer.installment_count != null;
 
   return (
     <div className="max-w-3xl">
@@ -208,29 +218,50 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      <div className={`card p-5 mb-6 ${customer.is_expired ? 'ring-2 ring-red-300' : ''}`}>
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <div className="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">Package Renewal</div>
-            {customer.is_expired ? (
-              <div className="text-lg font-bold text-red-600">
-                Expired {Math.abs(customer.days_remaining)} day{Math.abs(customer.days_remaining) === 1 ? '' : 's'} ago
+      <div className={`card p-5 mb-6 ${!customer.is_fully_paid && customer.is_expired ? 'ring-2 ring-red-300' : ''}`}>
+        {customer.is_fully_paid ? (
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">Ownership</div>
+              <div className="text-lg font-bold text-emerald-600">✓ Fully Paid — Owned Outright</div>
+              <div className="text-xs text-surface-500 mt-0.5">
+                All {customer.installment_count} installments collected. License is permanent, no further payments due.
               </div>
-            ) : (
-              <div className={`text-lg font-bold ${customer.days_remaining <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                {customer.days_remaining} day{customer.days_remaining === 1 ? '' : 's'} remaining
-              </div>
-            )}
-            <div className="text-xs text-surface-500 mt-0.5">Renews on {renewalDate.toLocaleDateString()}</div>
+            </div>
           </div>
-          <button className="btn-primary" disabled={reactivating} onClick={handleReactivate}>
-            {reactivating
-              ? 'Renewing...'
-              : customer.delivery_type === 'offline'
-                ? 'Renew (Generate New License Key)'
-                : 'Reactivate (Payment Received)'}
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">
+                {isInstallmentPlan ? `Installment ${customer.installments_paid} of ${customer.installment_count}` : 'Package Renewal'}
+              </div>
+              {customer.is_expired ? (
+                <div className="text-lg font-bold text-red-600">
+                  Expired {Math.abs(customer.days_remaining)} day{Math.abs(customer.days_remaining) === 1 ? '' : 's'} ago
+                </div>
+              ) : (
+                <div className={`text-lg font-bold ${customer.days_remaining <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                  {customer.days_remaining} day{customer.days_remaining === 1 ? '' : 's'} remaining
+                </div>
+              )}
+              <div className="text-xs text-surface-500 mt-0.5">
+                {isInstallmentPlan ? 'Next installment due' : 'Renews'} on {renewalDate.toLocaleDateString()}
+                {isInstallmentPlan && customer.total_price != null && customer.installment_count != null && (
+                  <> · {(customer.total_price / customer.installment_count).toLocaleString(undefined, { maximumFractionDigits: 2 })}/installment</>
+                )}
+              </div>
+            </div>
+            <button className="btn-primary" disabled={reactivating} onClick={handleReactivate}>
+              {reactivating
+                ? 'Processing...'
+                : isInstallmentPlan
+                  ? 'Confirm Installment Paid'
+                  : customer.delivery_type === 'offline'
+                    ? 'Renew (Generate New License Key)'
+                    : 'Reactivate (Payment Received)'}
+            </button>
+          </div>
+        )}
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
       </div>
 
@@ -240,6 +271,9 @@ export default function CustomerDetail() {
           <Field label="Agent" value={customer.agent_name} />
           <Field label="Started" value={startedDate.toLocaleDateString()} />
           <Field label="Last Payment" value={customer.last_payment_at ? new Date(customer.last_payment_at).toLocaleDateString() : 'Never renewed'} />
+          {isInstallmentPlan && (
+            <Field label="Total Price" value={`${customer.total_price!.toLocaleString(undefined, { maximumFractionDigits: 2 })} (${customer.installments_paid}/${customer.installment_count} installments)`} />
+          )}
           {customer.delivery_type === 'online' ? (
             <Field label="Tenant ID" value={customer.tenant_id} />
           ) : (

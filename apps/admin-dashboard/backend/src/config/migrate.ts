@@ -80,6 +80,20 @@ export const runMigrations = async (): Promise<void> => {
   // real numbers.
   await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE`, []);
 
+  // Offline installment purchase (2026-09-22 product decision): offline is
+  // no longer a recurring monthly subscription — the customer buys the
+  // whole POS outright at total_price, paid off over installment_count
+  // monthly installments. NULL total_price/installment_count means "not an
+  // installment-plan customer" — every existing offline customer created
+  // before this, which reactivateCustomer treats as the old plain
+  // recurring-license behavior, completely unchanged. is_fully_paid flips
+  // once installments_paid reaches installment_count and the license
+  // becomes permanent (see reactivateCustomer's PERMANENT_LICENSE_YEARS).
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS total_price NUMERIC(12,2)`, []);
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS installment_count INTEGER`, []);
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS installments_paid INTEGER NOT NULL DEFAULT 0`, []);
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS is_fully_paid BOOLEAN NOT NULL DEFAULT FALSE`, []);
+
   console.log('[migrate] staff/platform_customers ready.');
 };
 

@@ -10,6 +10,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const TEST_PERIOD_INTERVAL = '1 hour';
 const TEST_GRACE_MS = 10 * 60 * 1000;
 const REAL_GRACE_MS = 7 * MS_PER_DAY;
+// Offline installment purchase, fully paid off — the license becomes this
+// many years out, effectively permanent (see createCustomer/reactivateCustomer).
+const PERMANENT_LICENSE_YEARS = 100;
 
 // Expired/active is always derived from subscription_end_date — never
 // stored as a separate status, so it can't drift out of sync with the
@@ -109,6 +112,12 @@ export interface CreateCustomerInput {
   // — real customer creation never passes this, so it's always undefined/
   // false there and every real behavior below is unchanged.
   isTest?: boolean;
+  // Offline installment purchase — required for every new offline customer
+  // (2026-09-22: offline is no longer a recurring subscription, see
+  // reactivateCustomer's comment). Ignored for online, which has no
+  // installment concept.
+  totalPrice?: number;
+  installmentCount?: number;
 }
 
 // The core sale-completion flow: an agent (or admin) turns a customer
@@ -132,9 +141,28 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
   const planKey = input.planKey || 'basic';
   const customFeatures = input.customFeatures && input.customFeatures.length > 0 ? input.customFeatures : undefined;
 
+  let totalPrice: number | null = null;
+  let installmentCount: number | null = null;
+  if (input.deliveryType === 'offline') {
+    totalPrice = Number(input.totalPrice);
+    installmentCount = Math.floor(Number(input.installmentCount));
+    if (!(totalPrice > 0)) throw createError('Total price is required for offline customers', 400);
+    if (!(installmentCount >= 1)) throw createError('Installment count must be at least 1', 400);
+  }
+
   let tenantId: number | null = null;
   let licenseKey: string | null = null;
   const isTest = !!input.isTest;
+  const isInstallmentPlan = input.deliveryType === 'offline';
+
+  // The agent only creates this account after collecting the first
+  // installment (same "outside this system — cash/bank, checked manually"
+  // convention every payment here follows) — so creation itself counts as
+  // installment #1 paid. If the whole price was paid in one go
+  // (installmentCount === 1), that's already the final installment: the
+  // license is permanent from day one, no monthly cycle at all.
+  const installmentsPaidAtCreation = isInstallmentPlan ? 1 : 0;
+  const isFullyPaidAtCreation = isInstallmentPlan && installmentsPaidAtCreation >= installmentCount!;
 
   // Computed once up front so the license's embedded hard-cutoff and the
   // ledger's subscription_end_date agree exactly — two separate NOW() calls
@@ -144,9 +172,9 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
   // hardcoded literals selected by a boolean, safe to interpolate directly.
   const periodInterval = isTest ? TEST_PERIOD_INTERVAL : '1 month';
   const graceMs = isTest ? TEST_GRACE_MS : REAL_GRACE_MS;
-  const subscriptionEndDate = (
-    await query(`SELECT NOW() + INTERVAL '${periodInterval}' AS end_date`, [])
-  ).rows[0].end_date;
+  const subscriptionEndDate = isFullyPaidAtCreation
+    ? new Date(Date.now() + PERMANENT_LICENSE_YEARS * 365 * 24 * 60 * 60 * 1000).toISOString()
+    : (await query(`SELECT NOW() + INTERVAL '${periodInterval}' AS end_date`, [])).rows[0].end_date;
 
   if (input.deliveryType === 'online') {
     const result = await provisionOnlineTenant({
@@ -167,8 +195,11 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       preset_admin_password: input.adminPassword,
       // 1 week grace beyond the subscription month (10 min beyond the hour,
       // in test mode) — enforced locally by Electron on every launch (see
-      // license.js's checkLicense()).
-      expiresAt: new Date(new Date(subscriptionEndDate).getTime() + graceMs).toISOString(),
+      // license.js's checkLicense()). Skipped entirely once fully paid at
+      // creation — subscriptionEndDate is already the permanent date.
+      expiresAt: isFullyPaidAtCreation
+        ? subscriptionEndDate
+        : new Date(new Date(subscriptionEndDate).getTime() + graceMs).toISOString(),
       planKey,
     });
     licenseKey = result.licenseKey;
@@ -176,8 +207,8 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
 
   const row = await query(
     `INSERT INTO platform_customers
-       (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date, is_test)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date, is_test, total_price, installment_count, installments_paid, is_fully_paid)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING *`,
     [
       agentId,
@@ -192,6 +223,10 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       input.notes || null,
       subscriptionEndDate,
       isTest,
+      totalPrice,
+      installmentCount,
+      installmentsPaidAtCreation,
+      isFullyPaidAtCreation,
     ]
   );
 
@@ -253,19 +288,31 @@ export const getCustomerDetail = async (customerId: number, staff: { staff_id: n
 // cause. Explicit product decision (2026-09-22): online always gets the
 // full period from today, however late the reactivation happens.
 //
-// Offline: unchanged — still anchored to the END of the current cycle, not
-// to whenever during the grace week the renewal actually happens,
-// otherwise a customer who always pays a few days late would slowly drift
-// later and later each month. Only falls back to "a period from today" if
-// the anchored date would already be in the past (a genuinely lapsed
-// renewal). This still makes sense for offline specifically because its
-// grace window means the customer keeps *usable* access right up to the
-// hard cutoff — unlike online, no access is silently lost while waiting on
-// the admin. The license itself is single-use-per-cycle — Electron enforces
-// the hard cutoff locally (license.js's checkLicense(), no network needed),
-// so restoring the OLD key can't un-expire an already-lapsed install. A
-// renewal must issue a genuinely NEW key instead, which the agent/admin
-// then hands to the customer to re-activate with (see CustomerDetail.tsx).
+// Offline: NOT a recurring subscription at all (2026-09-22 product
+// decision) — the customer bought the whole POS outright at total_price,
+// paid off over installment_count monthly installments. Each Reactivate
+// here is "this month's installment was paid": still anchored to the END of
+// the current cycle (not to whenever during the grace week the payment
+// actually happens, otherwise a customer who always pays a few days late
+// would slowly drift later each month) — "move forward from where it
+// stopped," not reset. Only falls back to "a period from today" if the
+// anchored date would already be in the past (a genuinely lapsed renewal).
+// Anchoring still makes sense for offline specifically because its grace
+// window means the customer keeps *usable* access right up to the hard
+// cutoff — unlike online, no access is silently lost while waiting on the
+// admin. Once installments_paid reaches installment_count, the device is
+// fully paid off — the license becomes permanent (PERMANENT_LICENSE_YEARS
+// out) and is_fully_paid flips true; no further installment is ever due.
+// Legacy offline customers with no total_price/installment_count (created
+// before this existed) fall through the same anchored-date math unchanged,
+// just without any installment bookkeeping.
+//
+// The license itself is single-use-per-cycle either way — Electron
+// enforces the hard cutoff locally (license.js's checkLicense(), no
+// network needed), so restoring the OLD key can't un-expire an
+// already-lapsed install. A renewal must issue a genuinely NEW key
+// instead, which the agent/admin then hands to the customer to
+// re-activate with (see CustomerDetail.tsx).
 export const reactivateCustomer = async (customerId: number, staff: { staff_id: number; role: 'admin' | 'agent' }) => {
   const existing = await query('SELECT * FROM platform_customers WHERE id = $1', [customerId]);
   if (existing.rows.length === 0) throw createError('Customer not found', 404);
@@ -273,6 +320,13 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
   if (staff.role !== 'admin' && row.agent_id !== staff.staff_id) {
     throw createError('You can only reactivate customers you created', 403);
   }
+  if (row.is_fully_paid) {
+    throw createError('This customer has already paid off their device in full — no further installments are due.', 400);
+  }
+
+  const isInstallmentPlan = row.delivery_type === 'offline' && row.total_price != null && row.installment_count != null;
+  const newInstallmentsPaid = isInstallmentPlan ? row.installments_paid + 1 : row.installments_paid;
+  const justCompletedPlan = isInstallmentPlan && newInstallmentsPaid >= row.installment_count;
 
   // periodInterval is never attacker-controlled — one of exactly two
   // hardcoded literals selected by row.is_test, safe to interpolate.
@@ -292,12 +346,19 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
         )
       ).rows[0].end_date;
 
+  const newSubscriptionEnd = justCompletedPlan
+    ? new Date(Date.now() + PERMANENT_LICENSE_YEARS * 365 * 24 * 60 * 60 * 1000).toISOString()
+    : anchoredEnd;
+
   let newLicenseKey: string | null = null;
   if (row.delivery_type === 'offline' && row.license_key) {
+    const expiresAt = justCompletedPlan
+      ? newSubscriptionEnd
+      : new Date(new Date(anchoredEnd).getTime() + graceMs).toISOString();
     const result = await generateLicense({
       customer_name: row.customer_name,
       customer_email: row.customer_email,
-      expiresAt: new Date(new Date(anchoredEnd).getTime() + graceMs).toISOString(),
+      expiresAt,
     });
     newLicenseKey = result.licenseKey;
     await setLicenseActive(row.license_key, false);
@@ -305,10 +366,16 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
 
   const result = await query(
     `UPDATE platform_customers
-     SET subscription_end_date = $2, last_payment_at = NOW()${newLicenseKey ? ', license_key = $3' : ''}
+     SET subscription_end_date = $2,
+         last_payment_at = NOW(),
+         installments_paid = $3,
+         is_fully_paid = $4
+         ${newLicenseKey ? ', license_key = $5' : ''}
      WHERE id = $1
      RETURNING *`,
-    newLicenseKey ? [customerId, anchoredEnd, newLicenseKey] : [customerId, anchoredEnd]
+    newLicenseKey
+      ? [customerId, newSubscriptionEnd, newInstallmentsPaid, justCompletedPlan, newLicenseKey]
+      : [customerId, newSubscriptionEnd, newInstallmentsPaid, justCompletedPlan]
   );
   return withSubscriptionStatus(result.rows[0]);
 };
