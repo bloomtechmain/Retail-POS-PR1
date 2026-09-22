@@ -172,7 +172,7 @@
   <script>
     const activationReason = new URLSearchParams(location.search).get('reason');
     if (activationReason === 'expired') {
-      document.getElementById('subtitle').textContent = 'Your subscription needs renewing — enter your new license key';
+      document.getElementById('subtitle').textContent = 'Your payment is due — enter your new license key to continue';
     } else if (activationReason === 'revoked') {
       document.getElementById('subtitle').textContent = 'Your package has been updated — enter your new license key';
     }
