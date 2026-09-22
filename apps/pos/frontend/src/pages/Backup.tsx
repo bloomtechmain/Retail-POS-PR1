@@ -103,6 +103,16 @@ function ElectronBackupPanel({ api: electronApi, isTerminal }: { api: ElectronBa
 
   const [backups, setBackups] = useState<ElectronBackupEntry[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
+  // The folder currently being browsed/listed for restore — independent of
+  // the scheduled-backup default folder (config.folder). A customer who
+  // only ever clicks "Backup Now" into a folder of their choosing, and
+  // never touches the Automatic Backup schedule at all, previously had no
+  // way to see those backups here — this list was keyed off config.folder
+  // only, which stayed null forever for them. Defaults to the schedule
+  // folder if one exists, otherwise falls back to wherever the most recent
+  // manual backup went (see backupNow below), same as picking a specific
+  // backup off a list on the hosted web version.
+  const [restoreSourceFolder, setRestoreSourceFolder] = useState<string | null>(null);
   const [restoreFolder, setRestoreFolder] = useState<string | null>(null);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -127,7 +137,10 @@ function ElectronBackupPanel({ api: electronApi, isTerminal }: { api: ElectronBa
       const cfg = await electronApi.getConfig();
       setConfig(cfg);
       setManualFolder(cfg.folder);
-      if (cfg.folder) await refreshBackups(cfg.folder);
+      if (cfg.folder) {
+        setRestoreSourceFolder(cfg.folder);
+        await refreshBackups(cfg.folder);
+      }
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,7 +159,12 @@ function ElectronBackupPanel({ api: electronApi, isTerminal }: { api: ElectronBa
       const r = await electronApi.runNow(manualFolder);
       if (r.success) {
         toast.success(`Backup complete — ${formatSize(r.sizeBytes || 0)} saved to ${r.path}`);
-        if (config?.folder === manualFolder) await refreshBackups(manualFolder);
+        // Point the restore list at wherever this backup just landed, so it
+        // shows up immediately even if no automatic schedule/default folder
+        // was ever configured — otherwise a manual-only user could never
+        // see or select their own backups here at all.
+        setRestoreSourceFolder(manualFolder);
+        await refreshBackups(manualFolder);
       } else {
         toast.error(r.error || 'Backup failed');
       }
@@ -169,17 +187,25 @@ function ElectronBackupPanel({ api: electronApi, isTerminal }: { api: ElectronBa
       const saved = await electronApi.saveConfig(config);
       setConfig(saved);
       toast.success('Backup schedule saved');
+      setRestoreSourceFolder(saved.folder);
       await refreshBackups(saved.folder);
     } finally {
       setSavingConfig(false);
     }
   };
 
-  const chooseRestoreFolder = async () => {
+  // Browses for a folder to LIST backups from (any folder containing one or
+  // more backup-<timestamp> subfolders — e.g. an external drive a backup
+  // was copied to) — not the specific backup to restore. Picking the exact
+  // backup itself happens by clicking an entry in the list below, same as
+  // the hosted web version's "Automatic backups on our server" list.
+  const browseForBackups = async () => {
     const r = await electronApi.chooseRestoreFolder();
     if (r.canceled || !r.path) return;
-    setRestoreFolder(r.path);
+    setRestoreSourceFolder(r.path);
+    setRestoreFolder(null);
     setConfirmRestore(false);
+    await refreshBackups(r.path);
   };
 
   const doRestore = async () => {
@@ -291,36 +317,42 @@ function ElectronBackupPanel({ api: electronApi, isTerminal }: { api: ElectronBa
           Replace your current data with a previous backup. Use this if your database is lost or corrupted.
         </p>
 
-        {config?.folder && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-surface-700">Backups in default folder</span>
-              {loadingBackups && <span className="text-xs text-surface-400">Loading…</span>}
-            </div>
-            {backups.length === 0 ? (
-              <p className="text-sm text-surface-400">No backups found in the default folder yet.</p>
-            ) : (
-              <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                {backups.map((b) => (
-                  <button
-                    key={b.path}
-                    onClick={() => { setRestoreFolder(b.path); setConfirmRestore(false); }}
-                    className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                      restoreFolder === b.path ? 'border-primary-400 bg-primary-50' : 'border-surface-200 hover:border-primary-200'
-                    }`}
-                  >
-                    <div className="font-medium text-surface-900">{formatDate(b.createdAt)}</div>
-                    <div className="text-xs text-surface-400">{formatSize(b.sizeBytes)}{b.appVersion ? ` · v${b.appVersion}` : ''}</div>
-                  </button>
-                ))}
-              </div>
-            )}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <span className="text-sm font-medium text-surface-700">
+              {restoreSourceFolder ? 'Backups found' : 'Backups'}
+            </span>
+            {loadingBackups && <span className="text-xs text-surface-400">Loading…</span>}
           </div>
-        )}
+          {restoreSourceFolder && (
+            <p className="text-xs font-mono text-surface-400 truncate mb-2" title={restoreSourceFolder}>{restoreSourceFolder}</p>
+          )}
+          {!restoreSourceFolder ? (
+            <p className="text-sm text-surface-400">
+              No backup folder selected yet — back up now, set an automatic backup folder above, or browse for one below.
+            </p>
+          ) : backups.length === 0 ? (
+            <p className="text-sm text-surface-400">No backups found in this folder yet.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-56 overflow-y-auto">
+              {backups.map((b) => (
+                <button
+                  key={b.path}
+                  onClick={() => { setRestoreFolder(b.path); setConfirmRestore(false); }}
+                  className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                    restoreFolder === b.path ? 'border-primary-400 bg-primary-50' : 'border-surface-200 hover:border-primary-200'
+                  }`}
+                >
+                  <div className="font-medium text-surface-900">{formatDate(b.createdAt)}</div>
+                  <div className="text-xs text-surface-400">{formatSize(b.sizeBytes)}{b.appVersion ? ` · v${b.appVersion}` : ''}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-3 mb-3">
-          <button className="btn-secondary btn-sm" onClick={chooseRestoreFolder}>Choose a Different Backup Folder</button>
-          {restoreFolder && <span className="text-sm font-mono text-surface-600 truncate max-w-xs" title={restoreFolder}>{restoreFolder}</span>}
+          <button className="btn-secondary btn-sm" onClick={browseForBackups}>Browse for a Backup Folder</button>
         </div>
 
         {restoreFolder && (
