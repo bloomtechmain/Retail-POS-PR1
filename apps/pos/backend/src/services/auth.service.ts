@@ -103,12 +103,18 @@ export const loginUser = async (email: string, password: string) => {
     // table break every login on this backend.
     try {
       const subscriptionResult = await query(
-        'SELECT subscription_end_date FROM platform_customers WHERE tenant_id = $1',
+        'SELECT subscription_end_date, is_test FROM platform_customers WHERE tenant_id = $1',
         [user.tenant_id]
       );
       if (subscriptionResult.rows.length > 0) {
-        const endDate = subscriptionResult.rows[0].subscription_end_date;
-        if (endDate && new Date(endDate).getTime() < Date.now()) {
+        const { subscription_end_date: endDate, is_test } = subscriptionResult.rows[0];
+        // Real customers have zero grace (unchanged from before this existed)
+        // — only admin-dashboard's Testing Environment sets is_test, giving
+        // its accelerated hourly cycle the same 10-minute grace its offline
+        // license side already gets, so both delivery types behave the same
+        // way in test mode.
+        const graceMs = is_test ? 10 * 60 * 1000 : 0;
+        if (endDate && new Date(endDate).getTime() + graceMs < Date.now()) {
           throw createError('Your subscription has expired. Contact your agent to reactivate your account.', 403);
         }
       }

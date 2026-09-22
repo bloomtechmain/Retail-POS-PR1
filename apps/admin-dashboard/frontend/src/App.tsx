@@ -7,6 +7,7 @@ import CreateCustomer from './pages/CreateCustomer';
 import MyCustomers from './pages/MyCustomers';
 import CustomerDetail from './pages/CustomerDetail';
 import Agents from './pages/Agents';
+import TestingEnvironment from './pages/TestingEnvironment';
 
 function ProtectedRoutes() {
   const { staff } = useAuth();
@@ -24,6 +25,7 @@ function AppRoutes() {
         <Route path="/customers" element={<MyCustomers />} />
         <Route path="/customers/:id" element={<CustomerDetail />} />
         <Route path="/agents" element={<Agents />} />
+        <Route path="/testing-environment" element={<TestingEnvironment />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

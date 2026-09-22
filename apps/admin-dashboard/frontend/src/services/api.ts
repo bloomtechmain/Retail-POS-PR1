@@ -59,6 +59,8 @@ export interface PlatformCustomer {
   days_remaining: number;
   is_expired: boolean;
   is_active: boolean;
+  is_test: boolean;
+  ms_remaining: number;
 }
 
 export interface Agent {
@@ -90,6 +92,7 @@ export interface CreateCustomerInput {
   adminEmail: string;
   adminPassword: string;
   notes?: string;
+  isTest?: boolean;
 }
 
 export const createCustomer = async (input: CreateCustomerInput): Promise<PlatformCustomer & { adminEmail: string; adminPassword: string }> => {
@@ -97,8 +100,8 @@ export const createCustomer = async (input: CreateCustomerInput): Promise<Platfo
   return res.data.data;
 };
 
-export const listCustomers = async (): Promise<PlatformCustomer[]> => {
-  const res = await api.get('/staff/customers');
+export const listCustomers = async (scope: 'real' | 'test' = 'real'): Promise<PlatformCustomer[]> => {
+  const res = await api.get('/staff/customers', { params: { scope } });
   return res.data.data;
 };
 

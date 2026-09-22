@@ -7,14 +7,22 @@ import { provisionOnlineTenant, updateTenantPlan, setTenantActive, resetTenantPa
 import { generateLicense, setLicenseActive, deleteLicense } from './licenseServerClient';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const TEST_PERIOD_INTERVAL = '1 hour';
+const TEST_GRACE_MS = 10 * 60 * 1000;
+const REAL_GRACE_MS = 7 * MS_PER_DAY;
 
 // Expired/active is always derived from subscription_end_date — never
 // stored as a separate status, so it can't drift out of sync with the
 // actual date. Same computation apps/pos/backend's loginUser uses.
+// ms_remaining is purely additive (days_remaining/is_expired keep their
+// original day-rounded values unchanged) — Testing Environment's hour-scale
+// cycle needs sub-day precision to show a live countdown, real customers'
+// existing display is untouched.
 const withSubscriptionStatus = <T extends { subscription_end_date: string | Date }>(row: T) => {
   const endDate = new Date(row.subscription_end_date);
-  const daysRemaining = Math.ceil((endDate.getTime() - Date.now()) / MS_PER_DAY);
-  return { ...row, days_remaining: daysRemaining, is_expired: daysRemaining < 0 };
+  const msRemaining = endDate.getTime() - Date.now();
+  const daysRemaining = Math.ceil(msRemaining / MS_PER_DAY);
+  return { ...row, days_remaining: daysRemaining, is_expired: daysRemaining < 0, ms_remaining: msRemaining };
 };
 
 export const loginStaff = async (email: string, password: string) => {
@@ -97,6 +105,10 @@ export interface CreateCustomerInput {
   adminEmail: string;
   adminPassword: string;
   notes?: string;
+  // Testing Environment only (see routes/controllers for where this is set)
+  // — real customer creation never passes this, so it's always undefined/
+  // false there and every real behavior below is unchanged.
+  isTest?: boolean;
 }
 
 // The core sale-completion flow: an agent (or admin) turns a customer
@@ -122,12 +134,19 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
 
   let tenantId: number | null = null;
   let licenseKey: string | null = null;
+  const isTest = !!input.isTest;
 
   // Computed once up front so the license's embedded hard-cutoff and the
   // ledger's subscription_end_date agree exactly — two separate NOW() calls
   // (one on license-server, one in the INSERT below) could otherwise drift
   // by however many milliseconds pass in between.
-  const subscriptionEndDate = (await query(`SELECT NOW() + INTERVAL '1 month' AS end_date`, [])).rows[0].end_date;
+  // periodInterval is never attacker-controlled — it's one of exactly two
+  // hardcoded literals selected by a boolean, safe to interpolate directly.
+  const periodInterval = isTest ? TEST_PERIOD_INTERVAL : '1 month';
+  const graceMs = isTest ? TEST_GRACE_MS : REAL_GRACE_MS;
+  const subscriptionEndDate = (
+    await query(`SELECT NOW() + INTERVAL '${periodInterval}' AS end_date`, [])
+  ).rows[0].end_date;
 
   if (input.deliveryType === 'online') {
     const result = await provisionOnlineTenant({
@@ -146,9 +165,10 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       notes: input.notes,
       preset_admin_email: input.adminEmail.trim(),
       preset_admin_password: input.adminPassword,
-      // 1 week grace beyond the subscription month — enforced locally by
-      // Electron on every launch (see license.js's checkLicense()).
-      expiresAt: new Date(new Date(subscriptionEndDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      // 1 week grace beyond the subscription month (10 min beyond the hour,
+      // in test mode) — enforced locally by Electron on every launch (see
+      // license.js's checkLicense()).
+      expiresAt: new Date(new Date(subscriptionEndDate).getTime() + graceMs).toISOString(),
       planKey,
     });
     licenseKey = result.licenseKey;
@@ -156,8 +176,8 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
 
   const row = await query(
     `INSERT INTO platform_customers
-       (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date, is_test)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      RETURNING *`,
     [
       agentId,
@@ -171,6 +191,7 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       licenseKey,
       input.notes || null,
       subscriptionEndDate,
+      isTest,
     ]
   );
 
@@ -188,12 +209,21 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
 // features), which stay ownership-scoped below. `agent_name` lets the
 // frontend show "your customers" as a filter over this same full list
 // instead of a separate restricted query.
-export const listCustomers = async (staff: { staff_id: number; role: 'admin' | 'agent' }) => {
+//
+// scope defaults to 'real' so every existing caller (MyCustomers.tsx) keeps
+// seeing exactly what it always has — Testing Environment customers are
+// completely invisible there. Only the Testing Environment page itself asks
+// for scope: 'test'. The two scopes never mix in one response.
+export const listCustomers = async (
+  staff: { staff_id: number; role: 'admin' | 'agent' },
+  scope: 'real' | 'test' = 'real'
+) => {
   const result = await query(
     `SELECT pc.*, s.name as agent_name
      FROM platform_customers pc JOIN staff s ON s.id = pc.agent_id
+     WHERE pc.is_test = $1
      ORDER BY pc.created_at DESC`,
-    []
+    [scope === 'test']
   );
   return result.rows.map(withSubscriptionStatus);
 };
@@ -231,12 +261,16 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
     throw createError('You can only reactivate customers you created', 403);
   }
 
+  // periodInterval is never attacker-controlled — one of exactly two
+  // hardcoded literals selected by row.is_test, safe to interpolate.
+  const periodInterval = row.is_test ? TEST_PERIOD_INTERVAL : '1 month';
+  const graceMs = row.is_test ? TEST_GRACE_MS : REAL_GRACE_MS;
   const anchoredEnd = (
     await query(
       `SELECT CASE
-         WHEN subscription_end_date + INTERVAL '1 month' > NOW()
-           THEN subscription_end_date + INTERVAL '1 month'
-         ELSE NOW() + INTERVAL '1 month'
+         WHEN subscription_end_date + INTERVAL '${periodInterval}' > NOW()
+           THEN subscription_end_date + INTERVAL '${periodInterval}'
+         ELSE NOW() + INTERVAL '${periodInterval}'
        END AS end_date
        FROM platform_customers WHERE id = $1`,
       [customerId]
@@ -248,7 +282,7 @@ export const reactivateCustomer = async (customerId: number, staff: { staff_id: 
     const result = await generateLicense({
       customer_name: row.customer_name,
       customer_email: row.customer_email,
-      expiresAt: new Date(new Date(anchoredEnd).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(new Date(anchoredEnd).getTime() + graceMs).toISOString(),
     });
     newLicenseKey = result.licenseKey;
     await setLicenseActive(row.license_key, false);
@@ -295,10 +329,11 @@ export const upgradeCustomerPackage = async (
   if (row.delivery_type === 'online' && row.tenant_id) {
     await updateTenantPlan(row.tenant_id, planKey);
   } else if (row.delivery_type === 'offline' && row.license_key) {
+    const graceMs = row.is_test ? TEST_GRACE_MS : REAL_GRACE_MS;
     const result = await generateLicense({
       customer_name: row.customer_name,
       customer_email: row.customer_email,
-      expiresAt: new Date(new Date(row.subscription_end_date).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(new Date(row.subscription_end_date).getTime() + graceMs).toISOString(),
       planKey,
     });
     newLicenseKey = result.licenseKey;
@@ -416,20 +451,35 @@ export const getAdminDashboardStats = async () => {
              COUNT(*) FILTER (WHERE role = 'agent' AND deleted_at IS NULL) AS total_agents,
              COUNT(*) FILTER (WHERE role = 'agent' AND deleted_at IS NULL AND is_active) AS active_agents
            FROM staff`, []),
-    query(`SELECT COUNT(*) AS total_customers FROM platform_customers`, []),
-    query(`SELECT delivery_type, COUNT(*) AS count FROM platform_customers GROUP BY delivery_type`, []),
-    query(`SELECT plan_key, COUNT(*) AS count FROM platform_customers GROUP BY plan_key ORDER BY count DESC`, []),
-    query(`SELECT COUNT(*) AS total_tenants FROM tenants WHERE is_active = TRUE`, []),
-    query(`SELECT COUNT(*) AS total_users FROM users WHERE deleted_at IS NULL`, []),
+    query(`SELECT COUNT(*) AS total_customers FROM platform_customers WHERE is_test = FALSE`, []),
+    query(`SELECT delivery_type, COUNT(*) AS count FROM platform_customers WHERE is_test = FALSE GROUP BY delivery_type`, []),
+    query(`SELECT plan_key, COUNT(*) AS count FROM platform_customers WHERE is_test = FALSE GROUP BY plan_key ORDER BY count DESC`, []),
+    // tenants/users have no is_test column of their own (that only exists on
+    // this service's own platform_customers) — excluded here by tenant_id
+    // instead, so a Testing Environment online tenant's schema/users never
+    // inflate these real platform-wide counts.
+    query(
+      `SELECT COUNT(*) AS total_tenants FROM tenants
+       WHERE is_active = TRUE
+         AND id NOT IN (SELECT tenant_id FROM platform_customers WHERE is_test = TRUE AND tenant_id IS NOT NULL)`,
+      []
+    ),
+    query(
+      `SELECT COUNT(*) AS total_users FROM users
+       WHERE deleted_at IS NULL
+         AND (tenant_id IS NULL OR tenant_id NOT IN (SELECT tenant_id FROM platform_customers WHERE is_test = TRUE AND tenant_id IS NOT NULL))`,
+      []
+    ),
     query(
       `SELECT pc.id, pc.customer_name, pc.customer_email, pc.delivery_type, pc.plan_key, pc.created_at, s.name AS agent_name
        FROM platform_customers pc JOIN staff s ON s.id = pc.agent_id
+       WHERE pc.is_test = FALSE
        ORDER BY pc.created_at DESC LIMIT 10`,
       []
     ),
     query(
       `SELECT s.id, s.name, s.email, COUNT(pc.id) AS customer_count
-       FROM staff s LEFT JOIN platform_customers pc ON pc.agent_id = s.id
+       FROM staff s LEFT JOIN platform_customers pc ON pc.agent_id = s.id AND pc.is_test = FALSE
        WHERE s.role = 'agent' AND s.deleted_at IS NULL
        GROUP BY s.id, s.name, s.email
        ORDER BY customer_count DESC, s.name ASC
@@ -439,7 +489,7 @@ export const getAdminDashboardStats = async () => {
     query(
       `SELECT to_char(created_at, 'YYYY-MM-DD') AS day, COUNT(*) AS count
        FROM platform_customers
-       WHERE created_at >= NOW() - INTERVAL '13 days'
+       WHERE created_at >= NOW() - INTERVAL '13 days' AND is_test = FALSE
        GROUP BY day ORDER BY day ASC`,
       []
     ),
@@ -465,12 +515,12 @@ export const getAdminDashboardStats = async () => {
 export const getAgentDashboardStats = async (agentId: number) => {
   const [platform, totals, deliveryBreakdown, planBreakdown, recentCustomers] = await Promise.all([
     getAdminDashboardStats(),
-    query(`SELECT COUNT(*) AS total_customers FROM platform_customers WHERE agent_id = $1`, [agentId]),
-    query(`SELECT delivery_type, COUNT(*) AS count FROM platform_customers WHERE agent_id = $1 GROUP BY delivery_type`, [agentId]),
-    query(`SELECT plan_key, COUNT(*) AS count FROM platform_customers WHERE agent_id = $1 GROUP BY plan_key ORDER BY count DESC`, [agentId]),
+    query(`SELECT COUNT(*) AS total_customers FROM platform_customers WHERE agent_id = $1 AND is_test = FALSE`, [agentId]),
+    query(`SELECT delivery_type, COUNT(*) AS count FROM platform_customers WHERE agent_id = $1 AND is_test = FALSE GROUP BY delivery_type`, [agentId]),
+    query(`SELECT plan_key, COUNT(*) AS count FROM platform_customers WHERE agent_id = $1 AND is_test = FALSE GROUP BY plan_key ORDER BY count DESC`, [agentId]),
     query(
       `SELECT id, customer_name, customer_email, delivery_type, plan_key, created_at
-       FROM platform_customers WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 10`,
+       FROM platform_customers WHERE agent_id = $1 AND is_test = FALSE ORDER BY created_at DESC LIMIT 10`,
       [agentId]
     ),
   ]);

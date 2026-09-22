@@ -54,7 +54,8 @@ export const createCustomer = async (req: StaffAuthRequest, res: Response, next:
 
 export const listCustomers = async (req: StaffAuthRequest, res: Response, next: NextFunction) => {
   try {
-    const customers = await staffService.listCustomers({ staff_id: req.staff!.staff_id, role: req.staff!.role });
+    const scope = req.query.scope === 'test' ? 'test' : 'real';
+    const customers = await staffService.listCustomers({ staff_id: req.staff!.staff_id, role: req.staff!.role }, scope);
     res.json({ success: true, data: customers });
   } catch (err) { next(err); }
 };

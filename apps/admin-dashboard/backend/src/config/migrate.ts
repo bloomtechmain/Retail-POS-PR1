@@ -72,6 +72,14 @@ export const runMigrations = async (): Promise<void> => {
   // staff.service.ts's setCustomerActive.
   await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`, []);
 
+  // Testing Environment customers — same real create/reactivate code paths
+  // as real customers, just with an hour-scale billing cycle instead of a
+  // month-scale one (see staff.service.ts). Defaults FALSE so every existing
+  // and future real customer is completely unaffected; real-customer list/
+  // stats queries explicitly filter this out so test data never pollutes
+  // real numbers.
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE`, []);
+
   console.log('[migrate] staff/platform_customers ready.');
 };
 
