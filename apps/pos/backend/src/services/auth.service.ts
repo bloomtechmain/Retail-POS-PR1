@@ -108,12 +108,12 @@ export const loginUser = async (email: string, password: string) => {
       );
       if (subscriptionResult.rows.length > 0) {
         const { subscription_end_date: endDate, is_test } = subscriptionResult.rows[0];
-        // Real customers have zero grace (unchanged from before this existed)
-        // — only admin-dashboard's Testing Environment sets is_test, giving
-        // its accelerated hourly cycle the same 10-minute grace its offline
-        // license side already gets, so both delivery types behave the same
-        // way in test mode.
-        const graceMs = is_test ? 10 * 60 * 1000 : 0;
+        // Online now gets the same 1-week grace offline's license already
+        // has (product decision, 2026-09-22) — subscription_end_date is
+        // when payment was due, not the hard cutoff; login only actually
+        // blocks a week after that. Testing Environment's accelerated
+        // hourly cycle gets the equivalent 10-minute grace instead.
+        const graceMs = is_test ? 10 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
         if (endDate && new Date(endDate).getTime() + graceMs < Date.now()) {
           throw createError('Your subscription has expired. Contact your agent to reactivate your account.', 403);
         }
