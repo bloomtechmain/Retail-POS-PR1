@@ -118,6 +118,11 @@ export interface CreateCustomerInput {
   // installment concept.
   totalPrice?: number;
   installmentCount?: number;
+  // Optional (2026-09-23) — a flat interest percentage added on top of
+  // totalPrice, purely a billing figure for what the customer owes per
+  // month. Never read outside createCustomer; has no effect on the
+  // license/expiry/reactivation mechanics at all.
+  interestRate?: number;
 }
 
 // The core sale-completion flow: an agent (or admin) turns a customer
@@ -143,11 +148,16 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
 
   let totalPrice: number | null = null;
   let installmentCount: number | null = null;
+  let interestRate: number | null = null;
   if (input.deliveryType === 'offline') {
     totalPrice = Number(input.totalPrice);
     installmentCount = Math.floor(Number(input.installmentCount));
     if (!(totalPrice > 0)) throw createError('Total price is required for offline customers', 400);
     if (!(installmentCount >= 1)) throw createError('Installment count must be at least 1', 400);
+    if (input.interestRate != null) {
+      interestRate = Number(input.interestRate);
+      if (!(interestRate >= 0)) throw createError('Interest rate cannot be negative', 400);
+    }
   }
 
   let tenantId: number | null = null;
@@ -207,8 +217,8 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
 
   const row = await query(
     `INSERT INTO platform_customers
-       (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date, is_test, total_price, installment_count, installments_paid, is_fully_paid)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       (agent_id, customer_name, customer_email, customer_phone, delivery_type, plan_key, custom_features, tenant_id, license_key, notes, subscription_end_date, is_test, total_price, installment_count, installments_paid, is_fully_paid, interest_rate)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING *`,
     [
       agentId,
@@ -227,6 +237,7 @@ export const createCustomer = async (input: CreateCustomerInput, agentId: number
       installmentCount,
       installmentsPaidAtCreation,
       isFullyPaidAtCreation,
+      interestRate,
     ]
   );
 

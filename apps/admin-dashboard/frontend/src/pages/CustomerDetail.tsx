@@ -247,7 +247,11 @@ export default function CustomerDetail() {
               <div className="text-xs text-surface-500 mt-0.5">
                 {isInstallmentPlan ? 'Next installment due' : 'Renews'} on {renewalDate.toLocaleDateString()}
                 {isInstallmentPlan && customer.total_price != null && customer.installment_count != null && (
-                  <> · {(customer.total_price / customer.installment_count).toLocaleString(undefined, { maximumFractionDigits: 2 })}/installment</>
+                  <> · {(
+                    (customer.interest_rate != null && customer.interest_rate > 0
+                      ? customer.total_price * (1 + customer.interest_rate / 100)
+                      : customer.total_price) / customer.installment_count
+                  ).toLocaleString(undefined, { maximumFractionDigits: 2 })}/installment</>
                 )}
               </div>
             </div>
@@ -271,9 +275,23 @@ export default function CustomerDetail() {
           <Field label="Agent" value={customer.agent_name} />
           <Field label="Started" value={startedDate.toLocaleDateString()} />
           <Field label="Last Payment" value={customer.last_payment_at ? new Date(customer.last_payment_at).toLocaleDateString() : 'Never renewed'} />
-          {isInstallmentPlan && (
-            <Field label="Total Price" value={`${customer.total_price!.toLocaleString(undefined, { maximumFractionDigits: 2 })} (${customer.installments_paid}/${customer.installment_count} installments)`} />
-          )}
+          {isInstallmentPlan && (() => {
+            const hasInterest = customer.interest_rate != null && customer.interest_rate > 0;
+            const totalPayable = hasInterest ? customer.total_price! * (1 + customer.interest_rate! / 100) : customer.total_price!;
+            const perInstallment = totalPayable / customer.installment_count!;
+            return (
+              <>
+                <Field
+                  label="Total Price"
+                  value={`${customer.total_price!.toLocaleString(undefined, { maximumFractionDigits: 2 })}${hasInterest ? ` + ${customer.interest_rate}% interest` : ''} (${customer.installments_paid}/${customer.installment_count} installments)`}
+                />
+                <Field
+                  label={hasInterest ? 'Total Payable / Per Installment' : 'Per Installment'}
+                  value={`${hasInterest ? `${totalPayable.toLocaleString(undefined, { maximumFractionDigits: 2 })} / ` : ''}${perInstallment.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+                />
+              </>
+            );
+          })()}
           {customer.delivery_type === 'online' ? (
             <Field label="Tenant ID" value={customer.tenant_id} />
           ) : (

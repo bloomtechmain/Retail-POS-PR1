@@ -94,6 +94,14 @@ export const runMigrations = async (): Promise<void> => {
   await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS installments_paid INTEGER NOT NULL DEFAULT 0`, []);
   await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS is_fully_paid BOOLEAN NOT NULL DEFAULT FALSE`, []);
 
+  // Optional interest on top of total_price for an installment plan (2026-
+  // 09-23) — NULL/0 means no interest, unchanged from before this existed.
+  // Purely a billing/display figure: what the customer actually owes per
+  // month (see CreateCustomer.tsx/CustomerDetail.tsx's total-payable math)
+  // — never read by reactivateCustomer or anything expiry/license-related,
+  // which only ever cares about installment counts and dates, not money.
+  await query(`ALTER TABLE platform_customers ADD COLUMN IF NOT EXISTS interest_rate NUMERIC(5,2)`, []);
+
   console.log('[migrate] staff/platform_customers ready.');
 };
 

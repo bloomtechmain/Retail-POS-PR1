@@ -46,6 +46,7 @@ export default function TestingEnvironment() {
   const [adminPassword, setAdminPassword] = useState('');
   const [totalPrice, setTotalPrice] = useState('60000');
   const [installmentCount, setInstallmentCount] = useState('3');
+  const [interestRate, setInterestRate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
@@ -118,6 +119,7 @@ export default function TestingEnvironment() {
         isTest: true,
         totalPrice: deliveryType === 'offline' ? Number(totalPrice) : undefined,
         installmentCount: deliveryType === 'offline' ? Number(installmentCount) : undefined,
+        interestRate: deliveryType === 'offline' && interestRate !== '' ? Number(interestRate) : undefined,
       });
       setResult({
         delivery_type: data.delivery_type,
@@ -250,6 +252,10 @@ export default function TestingEnvironment() {
                 <div>
                   <label className="label">Number of installments</label>
                   <input className="input" type="number" min="1" step="1" value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label">Interest rate % (optional)</label>
+                  <input className="input" type="number" min="0" step="0.01" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} placeholder="e.g. 5" />
                 </div>
               </div>
             )}

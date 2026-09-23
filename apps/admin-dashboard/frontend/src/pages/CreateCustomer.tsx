@@ -40,6 +40,7 @@ export default function CreateCustomer() {
   const [notes, setNotes] = useState('');
   const [totalPrice, setTotalPrice] = useState('');
   const [installmentCount, setInstallmentCount] = useState('1');
+  const [interestRate, setInterestRate] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -82,6 +83,7 @@ export default function CreateCustomer() {
     setNotes('');
     setTotalPrice('');
     setInstallmentCount('1');
+    setInterestRate('');
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -128,6 +130,7 @@ export default function CreateCustomer() {
         notes: notes.trim() || undefined,
         totalPrice: deliveryType === 'offline' ? Number(totalPrice) : undefined,
         installmentCount: deliveryType === 'offline' ? Number(installmentCount) : undefined,
+        interestRate: deliveryType === 'offline' && interestRate !== '' ? Number(interestRate) : undefined,
       });
       setResult({
         delivery_type: data.delivery_type,
@@ -258,12 +261,21 @@ export default function CreateCustomer() {
             <div>
               <label className="label">Number of installments</label>
               <input className="input" type="number" min="1" step="1" value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} />
-              {Number(totalPrice) > 0 && Number(installmentCount) >= 1 && (
-                <p className="text-xs text-surface-500 mt-1">
-                  ≈ {(Number(totalPrice) / Number(installmentCount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} per month
-                </p>
-              )}
             </div>
+            <div>
+              <label className="label">Interest rate % (optional)</label>
+              <input className="input" type="number" min="0" step="0.01" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} placeholder="e.g. 5" />
+            </div>
+            {Number(totalPrice) > 0 && Number(installmentCount) >= 1 && (
+              <div className="sm:col-span-2 text-xs text-surface-500">
+                {Number(interestRate) > 0 ? (
+                  <>Total payable: {(Number(totalPrice) * (1 + Number(interestRate) / 100)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    {' '}(price + {interestRate}% interest) ≈ {((Number(totalPrice) * (1 + Number(interestRate) / 100)) / Number(installmentCount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} per month</>
+                ) : (
+                  <>≈ {(Number(totalPrice) / Number(installmentCount)).toLocaleString(undefined, { maximumFractionDigits: 2 })} per month</>
+                )}
+              </div>
+            )}
           </div>
         )}
 
