@@ -63,13 +63,36 @@ public class RawPrinterHelper
             if (!StartPagePrinter(hPrinter))
                 return "StartPagePrinter failed: " + Marshal.GetLastWin32Error();
 
-            int written;
-            if (!WritePrinter(hPrinter, bytes, bytes.Length, out written))
-                return "WritePrinter failed: " + Marshal.GetLastWin32Error();
+            // WritePrinter is documented to potentially write FEWER bytes than
+            // requested in a single call (a partial write) even when it
+            // returns success — callers are required to loop until the whole
+            // buffer is confirmed sent. Treating one call's return as "done"
+            // silently dropped the tail of larger receipts (more items ->
+            // bigger buffer -> more likely to hit a partial write), which
+            // printed as a bill missing its own bottom (totals/footer/cut).
+            int totalWritten = 0;
+            while (totalWritten < bytes.Length)
+            {
+                int remaining = bytes.Length - totalWritten;
+                byte[] chunk = bytes;
+                if (totalWritten > 0)
+                {
+                    chunk = new byte[remaining];
+                    Array.Copy(bytes, totalWritten, chunk, 0, remaining);
+                }
+
+                int written;
+                if (!WritePrinter(hPrinter, chunk, chunk.Length, out written))
+                    return "WritePrinter failed: " + Marshal.GetLastWin32Error() + " (sent " + totalWritten + "/" + bytes.Length + " bytes)";
+                if (written <= 0)
+                    return "WritePrinter stalled: 0 bytes written (sent " + totalWritten + "/" + bytes.Length + " bytes)";
+
+                totalWritten += written;
+            }
 
             EndPagePrinter(hPrinter);
             EndDocPrinter(hPrinter);
-            return "OK:" + written;
+            return "OK:" + totalWritten;
         }
         finally
         {
