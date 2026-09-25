@@ -145,12 +145,25 @@ export class EscPosBuilder {
     return this.raw(Array(n).fill(0x0a));
   }
 
-  // A few blank lines before the cut so the tear-off point clears the
-  // printed content on printers with a fixed cutting head offset — a
-  // standard ESC/POS convention, not specific to any one brand.
+  // Blank lines before the cut so the tear-off point clears the printed
+  // content — every thermal printer has some physical offset between the
+  // print head and the cutter blade, and 3 lines wasn't enough clearance on
+  // at least one real printer: the cut landed right at/through the last
+  // printed line instead of the blank margin after it, so the bottom of
+  // the bill (closing totals/thank-you line) was unreadable or the strip
+  // never fully separated from the next receipt. Bumped to 6 for more
+  // headroom — cheap paper, not print quality, so the cost is negligible.
   cut(): this {
-    this.feed(3);
-    return this.raw([GS, 0x56, 0x00]); // GS V 0 — full cut
+    this.feed(6);
+    // GS V 1 — partial cut, not full cut (GS V 0). Full-cut support is
+    // inconsistent across generic/clone ESC/POS thermal printers (common
+    // on cheap counter hardware) — some silently no-op it, leaving every
+    // receipt still physically attached to the next one until manually
+    // torn apart, which tears wherever is convenient rather than at the
+    // intended line, exactly matching "can't see the bottom of the bill."
+    // Partial cut (leaves a small paper bridge, separates with a light
+    // pull) is the far more broadly supported variant.
+    return this.raw([GS, 0x56, 0x01]);
   }
 
   toBytes(): Uint8Array {
