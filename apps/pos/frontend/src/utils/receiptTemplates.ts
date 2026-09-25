@@ -111,6 +111,17 @@ const saleMeta = async (b: EscPosBuilder, sale: Sale, L: Labels): Promise<void> 
   if (sale.customer_name) await b.twoColAuto(L.customer, sale.customer_name);
 };
 
+// Fixed brand remark, every template, always plain ASCII (never translated
+// per receiptLanguage — same treatment as the app's own "BloomPOS" brand
+// name elsewhere). A small gap before it keeps it visually separate from
+// whatever the template's own closing line was, and cut()'s own feed
+// margin still applies after this — untouched, just called later.
+const poweredByFooter = (b: EscPosBuilder): void => {
+  b.feed(1);
+  b.align('center');
+  b.line('Powered by BloomSwiftPOS');
+};
+
 const totalsBlock = async (b: EscPosBuilder, sale: Sale, settings: Settings | null, L: Labels): Promise<void> => {
   b.align('left');
   await b.twoColAuto(L.subtotal, amount(settings, sale.subtotal));
@@ -144,6 +155,7 @@ export async function buildReceiptStandard(sale: Sale, items: SaleItem[], settin
   b.feed(1);
   b.align('center');
   await b.lineAuto(L.thankYou);
+  poweredByFooter(b);
   b.cut();
   return b.toBytes();
 }
@@ -175,6 +187,7 @@ export async function buildReceiptCompact(sale: Sale, items: SaleItem[], setting
   }
   b.align('center');
   await b.lineAuto(L.thankYouShort);
+  poweredByFooter(b);
   b.cut();
   return b.toBytes();
 }
@@ -203,13 +216,16 @@ export async function buildReceiptDetailed(sale: Sale, items: SaleItem[], settin
   await b.lineAuto(L.thankYouWarm);
   if (settings?.default_invoice_note) await b.wrapAndPrintAuto(settings.default_invoice_note);
   if (settings?.email) b.line(settings.email);
+  poweredByFooter(b);
   b.cut();
   return b.toBytes();
 }
 
 // Bare-bones layout for the smallest paper / fastest handoff — business
 // name, items as one line each, and the total. No address, no per-item
-// tax breakdown, no thank-you footer.
+// tax breakdown, no thank-you footer — the "Powered by" remark still
+// prints (every template gets it), just without the rest of the usual
+// closing block.
 export async function buildReceiptMinimal(sale: Sale, items: SaleItem[], settings: Settings | null, charsPerLine: number, lang: ReceiptLanguage = 'en'): Promise<Uint8Array> {
   const L = LABELS[lang];
   const b = new EscPosBuilder(charsPerLine);
@@ -226,6 +242,7 @@ export async function buildReceiptMinimal(sale: Sale, items: SaleItem[], setting
   b.bold(true);
   await b.twoColAuto(L.total, amount(settings, sale.total_amount));
   b.bold(false);
+  poweredByFooter(b);
   b.cut();
   return b.toBytes();
 }
@@ -270,6 +287,7 @@ export async function buildReceiptFormal(sale: Sale, items: SaleItem[], settings
   b.align('center');
   b.line('_'.repeat(Math.min(24, b.width)));
   await b.lineAuto(L.signature);
+  poweredByFooter(b);
   b.cut();
   return b.toBytes();
 }

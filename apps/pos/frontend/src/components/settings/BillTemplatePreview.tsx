@@ -128,6 +128,13 @@ const totals = (settings: Settings | null, L: Labels): Row[] => [
   { kind: 'two', left: L.change, right: amount(settings, SAMPLE_SALE.change) },
 ];
 
+// Mirrors receiptTemplates.ts's poweredByFooter — every layout ends with
+// this, always plain English regardless of receiptLanguage.
+const POWERED_BY_ROWS: Row[] = [
+  { kind: 'space' },
+  { kind: 'text', text: 'Powered by BloomSwiftPOS', align: 'center', muted: true },
+];
+
 const itemSubtotal = (item: (typeof SAMPLE_ITEMS)[number]) => item.qty * item.price;
 const itemTax = (item: (typeof SAMPLE_ITEMS)[number]) => (itemSubtotal(item) * item.taxRate) / 100;
 
@@ -137,7 +144,7 @@ function rowsStandard(settings: Settings | null, L: Labels): Row[] {
     rows.push({ kind: 'text', text: item.name });
     rows.push({ kind: 'two', left: `  ${item.qty} x ${amount(settings, item.price)}`, right: amount(settings, itemSubtotal(item)) });
   }
-  rows.push({ kind: 'hr' }, ...totals(settings, L), { kind: 'space' }, { kind: 'text', text: L.thankYou, align: 'center' });
+  rows.push({ kind: 'hr' }, ...totals(settings, L), { kind: 'space' }, { kind: 'text', text: L.thankYou, align: 'center' }, ...POWERED_BY_ROWS);
   return rows;
 }
 
@@ -146,7 +153,7 @@ function rowsCompact(settings: Settings | null, L: Labels): Row[] {
   for (const item of SAMPLE_ITEMS) {
     rows.push({ kind: 'two', left: `${item.qty}x ${item.name}`, right: amount(settings, itemSubtotal(item)) });
   }
-  rows.push({ kind: 'hr' }, ...totals(settings, L), { kind: 'text', text: L.thankYouShort, align: 'center' });
+  rows.push({ kind: 'hr' }, ...totals(settings, L), { kind: 'text', text: L.thankYouShort, align: 'center' }, ...POWERED_BY_ROWS);
   return rows;
 }
 
@@ -164,6 +171,7 @@ function rowsDetailed(settings: Settings | null, L: Labels): Row[] {
     { kind: 'space' },
     { kind: 'text', text: L.thankYouWarm, align: 'center' },
     { kind: 'text', text: 'Goods once sold cannot be returned', align: 'center', muted: true },
+    ...POWERED_BY_ROWS,
   );
   return rows;
 }
@@ -177,7 +185,7 @@ function rowsMinimal(settings: Settings | null, L: Labels): Row[] {
   for (const item of SAMPLE_ITEMS) {
     rows.push({ kind: 'two', left: `${item.qty}x ${item.name}`, right: amount(settings, itemSubtotal(item)) });
   }
-  rows.push({ kind: 'hr', style: 'dotted' }, { kind: 'two', left: L.total, right: amount(settings, SAMPLE_SALE.total), bold: true });
+  rows.push({ kind: 'hr', style: 'dotted' }, { kind: 'two', left: L.total, right: amount(settings, SAMPLE_SALE.total), bold: true }, ...POWERED_BY_ROWS);
   return rows;
 }
 
@@ -204,6 +212,7 @@ function rowsFormal(settings: Settings | null, L: Labels): Row[] {
   rows.push({ kind: 'hr', style: 'solid' }, ...totals(settings, L), { kind: 'space' });
   rows.push({ kind: 'text', text: '________________________', align: 'center' });
   rows.push({ kind: 'text', text: L.signature, align: 'center' });
+  rows.push(...POWERED_BY_ROWS);
   return rows;
 }
 
